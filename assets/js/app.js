@@ -286,13 +286,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
   }
   document.getElementById('run-scan').addEventListener('click', async ()=>{
-    const key = (document.getElementById('av-key').value || '').trim();
-    if(!key){
-      if(!confirm('No API key provided. Scanning is limited without an Alpha Vantage API key. Continue?')) return;
-    } else {
-      localStorage.setItem('av_key', key);
+    const provider = document.getElementById('data-provider').value;
+    const avKey = (document.getElementById('av-key').value || '').trim();
+    const fhKey = (document.getElementById('fh-key').value || '').trim();
+    if(provider === 'alphavantage' && !avKey){
+      if(!confirm('Alpha Vantage selected but no API key provided. Scanning will be limited. Continue?')) return;
     }
-    const max = Math.max(1, Math.min(20, parseInt(document.getElementById('scan-count').value || '5')));
+    if(provider === 'finnhub' && !fhKey){
+      if(!confirm('Finnhub selected but no API key provided. Scanning will be limited. Continue?')) return;
+    }
+    localStorage.setItem('av_key', avKey);
+    localStorage.setItem('fh_key', fhKey);
+    const max = Math.max(1, Math.min(50, parseInt(document.getElementById('scan-count').value || '5')));
     runScan(max);
   });
 
@@ -334,6 +339,25 @@ document.addEventListener('DOMContentLoaded', ()=>{
   loadWatchlist();
   // render active studies if any
   renderActiveStudies();
+  // scanner advanced UI wiring
+  const toggleAdv = document.getElementById('toggle-advanced');
+  if(toggleAdv){
+    toggleAdv.addEventListener('click', ()=>{
+      const panel = document.getElementById('advanced-panel');
+      if(panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    });
+  }
+  // weight sliders
+  ['sma','rsi','macd','stoch','qqe'].forEach(k=>{
+    const el = document.getElementById('w-' + k);
+    const val = document.getElementById('w-' + k + '-val');
+    if(el && val){
+      const saved = localStorage.getItem('w_' + k) || el.value;
+      el.value = saved;
+      val.textContent = parseFloat(el.value).toFixed(1);
+      el.addEventListener('input', (e)=>{ val.textContent = parseFloat(e.target.value).toFixed(1); localStorage.setItem('w_' + k, e.target.value); });
+    }
+  });
 });
 
 // ---------- Scanner implementation ----------
@@ -354,17 +378,30 @@ async function runScan(maxCount = 5){
   const apiKey = localStorage.getItem('av_key') || '';
   const results = [];
 
+  const provider = document.getElementById('data-provider') ? document.getElementById('data-provider').value : 'alphavantage';
+  const fhKey = localStorage.getItem('fh_key') || '';
+  const avKey = localStorage.getItem('av_key') || '';
+
   for(let i=0;i<list.length;i++){
     const sym = list[i];
     status.textContent = `Scanning ${i+1}/${list.length}: ${sym}`;
     try{
-      const data = await fetchDailyAlpha(sym, apiKey);
-      // data: {closes, highs, lows}
+      let data = null;
+      if(provider === 'finnhub' && fhKey){
+        data = await fetchDailyFinnhub(sym, fhKey);
+      }
+      if(!data && avKey){
+        data = await fetchDailyAlpha(sym, avKey);
+      }
       if(!data || !data.closes || data.closes.length < 50){
         results.push({symbol: sym, score: 0, reason: 'insufficient data'});
       } else {
-        const scoreObj = analyzeSeries(data);
-        results.push(Object.assign({symbol: sym}, scoreObj));
+        const analysis = analyzeSeries(data);
+        const weights = getWeights();
+        // compute weighted score
+        const comp = analysis.components || {};
+        const weightedScore = (comp.sma || 0)*weights.sma + (comp.rsi||0)*weights.rsi + (comp.macd||0)*weights.macd + (comp.stoch||0)*weights.stoch + (comp.qqe||0)*weights.qqe;
+        results.push({symbol: sym, score: weightedScore, reason: analysis.reason || '', components: comp});
       }
     }catch(e){
       results.push({symbol: sym, score: 0, reason: 'error fetching'});
@@ -416,6 +453,32 @@ async function fetchDailyAlpha(symbol, apiKey){
   return {closes, highs, lows};
 }
 
+async function fetchDailyFinnhub(symbol, apiKey){
+  // Finnhub: /stock/candle?symbol=AAPL&resolution=D&from=...&to=...&token=
+  if(!apiKey) return null;
+  const to = Math.floor(Date.now()/1000);
+  const from = to - (365 * 24 * 60 * 60); // 1 year
+  const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${from}&to=${to}&token=${apiKey}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  if(!json || json.s !== 'ok' || !json.c) return null;
+  // Finnhub returns arrays: c (close), h (high), l (low)
+  const closes = json.c.slice().reverse();
+  const highs = json.h.slice().reverse();
+  const lows = json.l.slice().reverse();
+  return {closes, highs, lows};
+}
+
+function getWeights(){
+  return {
+    sma: parseFloat(localStorage.getItem('w_sma') || document.getElementById('w-sma').value) || 1,
+    rsi: parseFloat(localStorage.getItem('w_rsi') || document.getElementById('w-rsi').value) || 1,
+    macd: parseFloat(localStorage.getItem('w_macd') || document.getElementById('w-macd').value) || 1,
+    stoch: parseFloat(localStorage.getItem('w_stoch') || document.getElementById('w-stoch').value) || 1,
+    qqe: parseFloat(localStorage.getItem('w_qqe') || document.getElementById('w-qqe').value) || 1
+  };
+}
+
 function analyzeSeries(data){
   // data: {closes, highs, lows} with most recent first
   const closes = data.closes;
@@ -436,39 +499,42 @@ function analyzeSeries(data){
   // QQE approximation based on smoothed RSI
   const qqe = qqeApprox(closes, 14);
 
-  let score = 0; const reasons = [];
+  const components = {sma:0, rsi:0, macd:0, stoch:0, qqe:0};
+  const reasons = [];
 
   // SMA crossover
   if(shortSMA && longSMA){
-    if(shortSMA[0] > longSMA[0]){ score += 1.0; reasons.push('SMA bullish (10>50)'); }
+    if(shortSMA[0] > longSMA[0]){ components.sma = 1; reasons.push('SMA bullish (10>50)'); }
   }
 
   // RSI behavior
   if(rsiV){
-    if(rsiV[0] < 30){ score += 1.0; reasons.push('RSI oversold'); }
-    else if(rsiV[0] >=30 && rsiV[0] <=45){ score += 0.6; reasons.push('RSI favorable (30-45)'); }
+    if(rsiV[0] < 30){ components.rsi = 1; reasons.push('RSI oversold'); }
+    else if(rsiV[0] >=30 && rsiV[0] <=45){ components.rsi = 0.6; reasons.push('RSI favorable (30-45)'); }
   }
 
   // MACD signals
   if(mac && mac.macd && mac.signal){
-    if(mac.macd[0] > mac.signal[0]){ score += 1.1; reasons.push('MACD bullish cross'); }
-    // positive and rising histogram
-    if(mac.hist && mac.hist.length > 1 && mac.hist[0] > mac.hist[1]){ score += 0.5; reasons.push('MACD histogram rising'); }
+    if(mac.macd[0] > mac.signal[0]){ components.macd += 1; reasons.push('MACD bullish cross'); }
+    if(mac.hist && mac.hist.length > 1 && mac.hist[0] > mac.hist[1]){ components.macd += 0.5; reasons.push('MACD histogram rising'); }
+    // cap
+    components.macd = Math.min(2, components.macd);
   }
 
   // Stochastic: oversold and %K crossing up %D
   if(stoch && stoch.k && stoch.d){
-    if(stoch.k[0] < 20){ score += 0.8; reasons.push('Stochastic oversold'); }
-    if(stoch.k[0] > stoch.d[0] && stoch.k[1] <= stoch.d[1]){ score += 0.6; reasons.push('Stochastic K crossed up D'); }
+    if(stoch.k[0] < 20){ components.stoch += 1; reasons.push('Stochastic oversold'); }
+    if(stoch.k[0] > stoch.d[0] && stoch.k[1] <= stoch.d[1]){ components.stoch += 0.6; reasons.push('Stochastic K crossed up D'); }
+    components.stoch = Math.min(2, components.stoch);
   }
 
-  // QQE approx: smoothed RSI rising and below 50 (possible entry)
-  if(qqe && qqe.smoothed && qqe.smoothed.length){
-    if(qqe.smoothed[0] > qqe.smoothed[1] && qqe.smoothed[0] < 55){ score += 0.7; reasons.push('QQE approx rising (below 55)'); }
+  // QQE approx: smoothed RSI rising and below 55 (possible entry)
+  if(qqe && qqe.smoothed && qqe.smoothed.length > 1){
+    if(qqe.smoothed[0] > qqe.smoothed[1] && qqe.smoothed[0] < 55){ components.qqe = 0.8; reasons.push('QQE approx rising (below 55)'); }
   }
 
   const reason = reasons.length ? reasons.join(' · ') : 'no clear signal';
-  return {score, reason};
+  return {components, reason};
 }
 
 // EMA helper (returns array most recent first)

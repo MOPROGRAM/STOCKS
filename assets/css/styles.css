@@ -47,6 +47,12 @@ body{background:radial-gradient(1200px 400px at 10% 10%, rgba(79,140,255,0.06), 
 .rec-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;margin-bottom:6px;background:rgba(255,255,255,0.02)}
 .rec-badge{font-weight:700;color:#fff;background:linear-gradient(90deg,#4f8cff,#2dd4bf);padding:6px 10px;border-radius:8px}
 .rec-reason{color:var(--muted);font-size:12px}
+
+.scanner-advanced{margin-top:8px}
+.advanced-panel{display:flex;flex-direction:column;gap:6px;padding:10px 6px;border-radius:8px;background:rgba(255,255,255,0.01);border:1px solid rgba(255,255,255,0.02)}
+.advanced-panel label{font-size:13px;color:var(--muted);display:flex;justify-content:space-between}
+.advanced-panel input[type=range]{width:100%}
+.scanner-controls select, .scanner-controls input{background:transparent}
 .symbols-list{list-style:none;padding:6px;margin:0}
 .symbols-list li{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:10px;margin-bottom:8px;cursor:pointer;transition:all 160ms cubic-bezier(.2,.9,.2,1)}
 .symbols-list li:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(12,18,30,0.5);}
