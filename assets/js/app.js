@@ -91,8 +91,7 @@ function renderList(list){
     left.appendChild(name);
 
     const actions = document.createElement('div');
-    actions.style.display = 'flex';
-    actions.style.gap = '6px';
+  actions.className = 'symbol-actions';
 
     const viewBtn = document.createElement('button');
     viewBtn.textContent = 'View';
