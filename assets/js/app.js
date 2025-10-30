@@ -159,6 +159,45 @@ function addSymbol(sym){
   saveActiveList(list);
 }
 
+// Parse bulk input: accepts newline-separated or comma-separated values
+function parseBulkInput(raw){
+  if(!raw) return [];
+  // normalize separators: replace commas with newlines, then split
+  const cleaned = raw.replace(/,|;|\t/g, '\n');
+  const lines = cleaned.split(/\n/).map(s=>s.trim()).filter(Boolean);
+  // normalize to uppercase plain symbols
+  return lines.map(s => s.toUpperCase().replace(/^NASDAQ:/i, '').replace(/^NYSE:/i, '').trim());
+}
+
+function bulkAddSymbols(){
+  const raw = document.getElementById('bulk-input').value || '';
+  const syms = parseBulkInput(raw);
+  if(!syms.length) return alert('No symbols found in input');
+  let list = getActiveList();
+  // if no saved list and data file present, keep user list empty and add to it
+  list = Array.isArray(list) ? list : [];
+  let added = 0;
+  syms.forEach(s => {
+    if(!list.includes(s)){
+      list.unshift(s);
+      added++;
+    }
+  });
+  saveActiveList(list);
+  showToast(`${added} symbol${added!==1?'s':''} added`);
+}
+
+function bulkRemoveSymbols(){
+  const raw = document.getElementById('bulk-input').value || '';
+  const syms = parseBulkInput(raw);
+  if(!syms.length) return alert('No symbols found in input');
+  if(!confirm(`Remove ${syms.length} symbol${syms.length!==1?'s':''} from your watchlist? This cannot be undone.`)) return;
+  let list = getActiveList();
+  list = list.filter(s => !syms.includes(s));
+  saveActiveList(list);
+  showToast(`${syms.length} symbol${syms.length!==1?'s':''} removed`);
+}
+
 function removeSymbol(sym){
   let list = getActiveList();
   list = list.filter(s => s !== sym);
@@ -502,6 +541,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     reader.readAsText(f);
   });
   ensureDefaultProfiles();
+
+  // Bulk add/remove wiring
+  const bulkAddBtn = document.getElementById('bulk-add-btn');
+  const bulkRemoveBtn = document.getElementById('bulk-remove-btn');
+  if(bulkAddBtn) bulkAddBtn.addEventListener('click', bulkAddSymbols);
+  if(bulkRemoveBtn) bulkRemoveBtn.addEventListener('click', bulkRemoveSymbols);
 });
 
 // ---------- Scanner implementation ----------
@@ -914,30 +959,85 @@ function renderZigZagOverlay(pivots, closes){
     svg.appendChild(circle);
   });
 
-  // draw simple trend lines: connect last two highs and last two lows
+  // Advanced trend/channel drawing
   const highs = points.filter(p => p.type === 'high');
   const lows = points.filter(p => p.type === 'low');
-  if(highs.length >= 2){
-    const a = highs[highs.length-2];
-    const b = highs[highs.length-1];
-    const line = document.createElementNS(svgNS, 'line');
-    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
-    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
-    line.setAttribute('stroke', 'rgba(255,90,90,0.9)');
-    line.setAttribute('stroke-width', '1.6');
-    line.setAttribute('stroke-dasharray', '6 4');
-    svg.appendChild(line);
+
+  // least-squares linear regression for (x,y)
+  function fitLine(ptArray){
+    if(!ptArray || ptArray.length < 2) return null;
+    const nPts = ptArray.length;
+    let sx=0, sy=0, sxx=0, sxy=0;
+    for(const p of ptArray){ sx += p.x; sy += p.y; sxx += p.x*p.x; sxy += p.x*p.y; }
+    const denom = (nPts * sxx - sx*sx);
+    if(Math.abs(denom) < 1e-9) return null;
+    const m = (nPts * sxy - sx*sy) / denom;
+    const b = (sy - m * sx) / nPts;
+    return {m,b};
   }
-  if(lows.length >= 2){
-    const a = lows[lows.length-2];
-    const b = lows[lows.length-1];
-    const line = document.createElementNS(svgNS, 'line');
-    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
-    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
-    line.setAttribute('stroke', 'rgba(90,255,140,0.9)');
-    line.setAttribute('stroke-width', '1.6');
-    line.setAttribute('stroke-dasharray', '6 4');
-    svg.appendChild(line);
+
+  // evaluate y for x across width
+  function yAt(line, x){ return line.m * x + line.b; }
+
+  // draw helper for an extended line across full width
+  function drawExtendedLine(lineObj, color='rgba(255,90,90,0.9)', widthPx=1.6, dash='6 4'){
+    if(!lineObj) return;
+    const y0 = yAt(lineObj, 0);
+    const y1 = yAt(lineObj, w);
+    const ln = document.createElementNS(svgNS, 'line');
+    ln.setAttribute('x1', 0); ln.setAttribute('y1', y0);
+    ln.setAttribute('x2', w); ln.setAttribute('y2', y1);
+    ln.setAttribute('stroke', color);
+    ln.setAttribute('stroke-width', String(widthPx));
+    if(dash) ln.setAttribute('stroke-dasharray', dash);
+    svg.appendChild(ln);
+  }
+
+  // compute regression lines
+  const highLine = fitLine(highs);
+  const lowLine = fitLine(lows);
+
+  if(highLine && lowLine){
+    // draw shaded channel between the two regression lines
+    const upperYs = [yAt(highLine,0), yAt(highLine,w)];
+    const lowerYs = [yAt(lowLine,w), yAt(lowLine,0)];
+    const polyPts = `0,${upperYs[0]} ${w},${upperYs[1]} ${w},${lowerYs[0]} 0,${lowerYs[1]}`;
+    const band = document.createElementNS(svgNS, 'polygon');
+    band.setAttribute('points', polyPts);
+    band.setAttribute('fill', 'rgba(255,200,80,0.06)');
+    band.setAttribute('stroke', 'none');
+    svg.appendChild(band);
+    // draw regression lines
+    drawExtendedLine(highLine, 'rgba(255,90,90,0.95)', 1.6, '6 4');
+    drawExtendedLine(lowLine, 'rgba(90,255,140,0.95)', 1.6, '6 4');
+  } else if(highLine && !lowLine){
+    // draw high regression and a parallel lower channel offset by average deviation of lows from highLine
+    const devs = lows.map(p => (p.y - yAt(highLine, p.x)));
+    const avgDev = devs.length ? devs.reduce((a,b)=>a+b,0)/devs.length : (h*0.08);
+    drawExtendedLine(highLine, 'rgba(255,90,90,0.95)', 1.6, '6 4');
+    const parallel = {m: highLine.m, b: highLine.b + avgDev};
+    drawExtendedLine(parallel, 'rgba(90,255,140,0.9)', 1.6, '6 4');
+    // shaded channel
+    const upperYs = [yAt(highLine,0), yAt(highLine,w)];
+    const lowerYs = [yAt(parallel,w), yAt(parallel,0)];
+    const polyPts2 = `0,${upperYs[0]} ${w},${upperYs[1]} ${w},${lowerYs[0]} 0,${lowerYs[1]}`;
+    const band2 = document.createElementNS(svgNS, 'polygon');
+    band2.setAttribute('points', polyPts2);
+    band2.setAttribute('fill', 'rgba(255,200,80,0.05)');
+    svg.appendChild(band2);
+  } else if(lowLine && !highLine){
+    const devs = highs.map(p => (yAt(lowLine, p.x) - p.y));
+    const avgDev = devs.length ? devs.reduce((a,b)=>a+b,0)/devs.length : (h*0.08);
+    drawExtendedLine(lowLine, 'rgba(90,255,140,0.95)', 1.6, '6 4');
+    const parallel = {m: lowLine.m, b: lowLine.b - avgDev};
+    drawExtendedLine(parallel, 'rgba(255,90,90,0.95)', 1.6, '6 4');
+    const upperYs = [yAt(parallel,0), yAt(parallel,w)];
+    const lowerYs = [yAt(lowLine,w), yAt(lowLine,0)];
+    const polyPts3 = `0,${upperYs[0]} ${w},${upperYs[1]} ${w},${lowerYs[0]} 0,${lowerYs[1]}`;
+    const band3 = document.createElementNS(svgNS, 'polygon');
+    band3.setAttribute('points', polyPts3);
+    band3.setAttribute('fill', 'rgba(255,200,80,0.05)');
+    svg.appendChild(band3);
   }
 
   cont.appendChild(svg);

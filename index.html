@@ -67,6 +67,14 @@
           <button id="add-symbol">Add</button>
           <button id="reset-watchlist" title="Reset to default list">Reset</button>
           <button id="export-watchlist" title="Export watchlist JSON">Export</button>
+          <div class="bulk-operations" style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+            <textarea id="bulk-input" placeholder="Paste symbols (one per line) or comma-separated — e.g.\nTSLA\nAAPL\nMSFT  or  tsla,aapl,msft" style="width:100%;height:88px;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:var(--muted);"></textarea>
+            <div style="display:flex;gap:8px">
+              <button id="bulk-add-btn">Add All</button>
+              <button id="bulk-remove-btn">Remove All</button>
+            </div>
+            <small style="color:var(--muted);font-size:12px">Add: appends symbols (ignores duplicates). Remove: deletes any matching symbols from your watchlist.</small>
+          </div>
         </div>
         <div class="scanner">
           <h3>Scanner (entry opportunities)</h3>
