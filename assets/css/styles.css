@@ -17,7 +17,7 @@ body{background:radial-gradient(1200px 400px at 10% 10%, rgba(79,140,255,0.06), 
 .controls{display:flex;gap:12px;align-items:center}
 #toggle-list{background:linear-gradient(90deg, rgba(79,140,255,0.08), rgba(45,212,191,0.03));border:0;color:#fff;padding:8px 14px;border-radius:10px;cursor:pointer;box-shadow:0 6px 18px rgba(20,30,60,0.45);transition:transform 160ms, box-shadow 160ms}
 #toggle-list:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(20,30,60,0.55)}
-.layout{display:flex;gap:22px;padding:14px;align-items:flex-start;max-width:1280px;margin:9px auto}
+.layout{display:flex;gap:22px;padding:14px;align-items:flex-start;width:75%;max-width:1280px;margin:9px auto}
 .chart-area{flex:3;min-width:0}
 .watchlist{flex:1;max-width:420px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:8px;height:calc(100vh - 75px);overflow:auto;box-shadow:0 18px 50px rgba(2,6,23,0.6);backdrop-filter: blur(8px);border:1px solid rgba(255,255,255,0.04)}
 /* modern scrolling polish */
@@ -99,6 +99,7 @@ html,body{ -webkit-overflow-scrolling: touch; }
 .footer{padding:12px 20px;color:var(--muted);font-size:13px}
 @media (max-width:1100px){
   .layout{gap:12px}
+  .layout{width:100%}
   .watchlist{max-width:360px}
 }
 @media (max-width:900px){
