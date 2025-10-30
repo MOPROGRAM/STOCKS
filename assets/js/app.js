@@ -277,6 +277,25 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
   document.getElementById('export-watchlist').addEventListener('click', exportWatchlist);
 
+  // Scanner: Alpha Vantage integration (optional)
+  const avKeyInput = document.getElementById('av-key');
+  if(avKeyInput){
+    avKeyInput.value = localStorage.getItem('av_key') || '';
+    avKeyInput.addEventListener('change', (e)=>{
+      localStorage.setItem('av_key', e.target.value.trim());
+    });
+  }
+  document.getElementById('run-scan').addEventListener('click', async ()=>{
+    const key = (document.getElementById('av-key').value || '').trim();
+    if(!key){
+      if(!confirm('No API key provided. Scanning is limited without an Alpha Vantage API key. Continue?')) return;
+    } else {
+      localStorage.setItem('av_key', key);
+    }
+    const max = Math.max(1, Math.min(20, parseInt(document.getElementById('scan-count').value || '5')));
+    runScan(max);
+  });
+
   // Interval buttons
   document.querySelectorAll('.interval-btn').forEach(b=>{
     b.addEventListener('click', ()=>{
@@ -316,3 +335,131 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // render active studies if any
   renderActiveStudies();
 });
+
+// ---------- Scanner implementation ----------
+async function runScan(maxCount = 5){
+  const status = document.getElementById('scan-status');
+  const recList = document.getElementById('recommendations');
+  status.textContent = 'Preparing scan...';
+  recList.innerHTML = '';
+
+  // Build list to scan: user watchlist or default
+  let list = getActiveList();
+  if(!list.length){
+    // fetch default quickly
+    try{ const res = await fetch(WATCHLIST_URL); list = await res.json(); }catch(e){ list = []; }
+  }
+  list = list.slice(0, maxCount);
+
+  const apiKey = localStorage.getItem('av_key') || '';
+  const results = [];
+
+  for(let i=0;i<list.length;i++){
+    const sym = list[i];
+    status.textContent = `Scanning ${i+1}/${list.length}: ${sym}`;
+    try{
+      const data = await fetchDailyAlpha(sym, apiKey);
+      if(!data || data.length < 30){
+        results.push({symbol: sym, score: 0, reason: 'insufficient data'});
+      } else {
+        const scoreObj = analyzeSeries(data);
+        results.push(Object.assign({symbol: sym}, scoreObj));
+      }
+    }catch(e){
+      results.push({symbol: sym, score: 0, reason: 'error fetching'});
+    }
+    // Respect free API rate limits: pause if apiKey is present or not
+    await sleep(1200); // small delay to avoid burst; user should supply API key and limit scanCount
+  }
+
+  // Sort by score desc
+  results.sort((a,b)=> (b.score||0) - (a.score||0));
+  status.textContent = 'Scan complete';
+
+  // Render recommendations (score >= 1)
+  results.forEach(r=>{
+    const li = document.createElement('li');
+    li.className = 'rec-item';
+    const left = document.createElement('div');
+    left.innerHTML = `<div><strong>${r.symbol}</strong><div class="rec-reason">${r.reason || ''}</div></div>`;
+    const right = document.createElement('div');
+    right.innerHTML = `<span class="rec-badge">${(r.score||0).toFixed(1)}</span>`;
+    li.appendChild(left);
+    li.appendChild(right);
+    recList.appendChild(li);
+  });
+}
+
+function sleep(ms){ return new Promise(res=>setTimeout(res, ms)); }
+
+async function fetchDailyAlpha(symbol, apiKey){
+  // alpha vantage: TIME_SERIES_DAILY_ADJUSTED
+  if(!apiKey){
+    // no API key: try a lightweight no-key endpoint (not reliable) -> return null
+    return null;
+  }
+  const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${encodeURIComponent(symbol)}&outputsize=compact&apikey=${apiKey}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  const series = json['Time Series (Daily)'] || json['Time Series (60min)'] || null;
+  if(!series) return null;
+  // convert to descending (most recent first) array of closes
+  const dates = Object.keys(series).sort((a,b)=> new Date(b) - new Date(a));
+  return dates.map(d => parseFloat(series[d]['4. close']));
+}
+
+function analyzeSeries(closes){
+  // expects closes array with most recent first
+  // compute sma short (10), sma long (50) and rsi(14)
+  const short = sma(closes, 10);
+  const long = sma(closes, 50);
+  const rsiV = rsi(closes,14);
+  let score = 0; const reasons = [];
+  if(short && long){
+    if(short[0] > long[0]){ score += 1.2; reasons.push('SMA bullish (10>50)'); }
+    else if(short[0] < long[0]){ reasons.push('SMA not crossed'); }
+  }
+  if(rsiV){
+    if(rsiV[0] < 35){ score += 0.8; reasons.push('RSI oversold'); }
+    else if(rsiV[0] >=35 && rsiV[0] <=50){ score += 0.5; reasons.push('RSI neutral (good entry)'); }
+  }
+  const reason = reasons.join(' · ') || 'no signal';
+  return {score, reason};
+}
+
+function sma(arr, n){
+  if(!arr || arr.length < n) return null;
+  const out = [];
+  for(let i=0;i<=arr.length - n;i++){
+    const slice = arr.slice(i, i+n);
+    const s = slice.reduce((a,b)=>a+b,0)/n;
+    out.push(s);
+  }
+  return out; // most recent at index 0
+}
+
+function rsi(closes, period=14){
+  // closes array most recent first
+  if(!closes || closes.length < period+1) return null;
+  // compute gains/losses from oldest->newest, so reverse
+  const c = [...closes].reverse();
+  let gains=0, losses=0;
+  for(let i=1;i<=period;i++){
+    const diff = c[i] - c[i-1];
+    if(diff>0) gains += diff; else losses += Math.abs(diff);
+  }
+  let avgGain = gains/period; let avgLoss = losses/period;
+  const out = [];
+  // first RSI corresponds to c[period]
+  let rs = avgGain / (avgLoss || 1e-6);
+  out.push(100 - (100/(1+rs)));
+  for(let i=period+1;i<c.length;i++){
+    const diff = c[i] - c[i-1];
+    const gain = diff>0?diff:0; const loss = diff<0?Math.abs(diff):0;
+    avgGain = (avgGain*(period-1)+gain)/period;
+    avgLoss = (avgLoss*(period-1)+loss)/period;
+    rs = avgGain / (avgLoss || 1e-6);
+    out.unshift(100 - (100/(1+rs))); // keep most recent at index 0
+  }
+  return out;
+}

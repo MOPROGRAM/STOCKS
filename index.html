@@ -61,6 +61,16 @@
           <button id="reset-watchlist" title="Reset to default list">Reset</button>
           <button id="export-watchlist" title="Export watchlist JSON">Export</button>
         </div>
+        <div class="scanner">
+          <h3>Scanner (entry opportunities)</h3>
+          <div class="scanner-controls">
+            <input id="av-key" placeholder="Alpha Vantage API Key (optional)" />
+            <input id="scan-count" type="number" min="1" max="20" value="5" title="Max symbols to scan (free API limits apply)" />
+            <button id="run-scan">Run scan</button>
+          </div>
+          <div id="scan-status" class="scan-status">Idle</div>
+          <ul id="recommendations" class="recommendations"></ul>
+        </div>
       </div>
       <ul id="symbols" class="symbols-list"></ul>
     </aside>

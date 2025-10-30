@@ -34,6 +34,19 @@ body{background:radial-gradient(1200px 400px at 10% 10%, rgba(79,140,255,0.06), 
 #filter{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit;outline:none}
 #new-symbol{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
 #add-symbol,#reset-watchlist,#export-watchlist{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted);cursor:pointer}
+
+.scanner{margin-top:12px;padding-top:10px;border-top:1px dashed rgba(255,255,255,0.02)}
+.scanner h3{margin:6px 0;color:var(--muted);font-size:14px}
+.scanner-controls{display:flex;gap:8px;align-items:center}
+.scanner-controls input[type="number"]{width:68px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+.scanner-controls input[type="text"],.scanner-controls input[type="password"]{flex:1}
+#av-key{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+#run-scan{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:linear-gradient(90deg, rgba(79,140,255,0.08), rgba(79,140,255,0.02));cursor:pointer}
+.scan-status{color:var(--muted);font-size:13px;margin-top:8px}
+.recommendations{list-style:none;padding:8px;margin:6px 0 0 0;max-height:260px;overflow:auto}
+.rec-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;margin-bottom:6px;background:rgba(255,255,255,0.02)}
+.rec-badge{font-weight:700;color:#fff;background:linear-gradient(90deg,#4f8cff,#2dd4bf);padding:6px 10px;border-radius:8px}
+.rec-reason{color:var(--muted);font-size:12px}
 .symbols-list{list-style:none;padding:6px;margin:0}
 .symbols-list li{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:10px;margin-bottom:8px;cursor:pointer;transition:all 160ms cubic-bezier(.2,.9,.2,1)}
 .symbols-list li:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(12,18,30,0.5);}
