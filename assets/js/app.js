@@ -239,6 +239,17 @@ function addStudy(name){
   if(name === 'QQE'){
     // QQE may not be available in the basic widget; still store request so we try to add it
   }
+  // Special handling for ZigZag: it's a local overlay not a TradingView built-in study
+  if(name === 'ZIGZAG'){
+    // persist ZigZag as an active study so it appears in chips
+    if(!activeStudies.includes('ZIGZAG')) activeStudies.push('ZIGZAG');
+    localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
+    localStorage.setItem('zigzag_on', true);
+    renderActiveStudies();
+    // compute and render overlay
+    try{ updateZigZag(); }catch(e){ console.warn('Failed to update ZigZag', e); }
+    return;
+  }
   if(!activeStudies.includes(name)){
     activeStudies.push(name);
     localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
@@ -248,6 +259,15 @@ function addStudy(name){
 }
 
 function removeStudy(name){
+  // Special handling for ZigZag
+  if(name === 'ZIGZAG'){
+    activeStudies = activeStudies.filter(s => s !== 'ZIGZAG');
+    localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
+    localStorage.setItem('zigzag_on', false);
+    renderActiveStudies();
+    clearZigZagOverlay();
+    return;
+  }
   activeStudies = activeStudies.filter(s => s !== name);
   localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
   renderActiveStudies();
@@ -894,11 +914,25 @@ function computeZigZag(closes, thresholdPercent = 5){
 
   // convert pivots indexes back to the original (most recent first) indexing
   // original index for a chronological index i is (n - 1 - i)
-  return pivots.map(p => ({
-    idx: n - 1 - p.index,
-    price: p.price,
-    type: p.type
-  }));
+  let out = pivots.map(p => ({ idx: n - 1 - p.index, price: p.price, type: p.type }));
+
+  // If pivots are too few, fall back to a simple local-extrema detector to ensure visuals
+  if(out.length < 3){
+    const local = [];
+    for(let i=1;i<n-1;i++){
+      const prev = data[i-1], cur = data[i], next = data[i+1];
+      if(cur > prev && cur > next) local.push({idx: n - 1 - i, price: cur, type: 'high'});
+      else if(cur < prev && cur < next) local.push({idx: n - 1 - i, price: cur, type: 'low'});
+      if(local.length >= 12) break;
+    }
+    // ensure at least endpoints if nothing found
+    if(local.length === 0){
+      local.push({idx: n-1, price: data[n-1], type: data[n-1] >= data[n-2] ? 'high' : 'low'});
+      local.unshift({idx: 0, price: data[0], type: data[0] >= data[1] ? 'high' : 'low'});
+    }
+    out = local;
+  }
+  return out;
 }
 
 function clearZigZagOverlay(){
