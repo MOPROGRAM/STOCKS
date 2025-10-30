@@ -437,6 +437,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const clearAllBtn = document.getElementById('clear-watchlist');
   if(clearAllBtn) clearAllBtn.addEventListener('click', clearAllWatchlist);
 
+  // QQE on-chart toggle
+  const qqeOnChart = document.getElementById('qqe-onchart');
+  if(qqeOnChart){
+    qqeOnChart.checked = localStorage.getItem('qqe_onchart') === 'true';
+    qqeOnChart.addEventListener('change', (e)=>{
+      localStorage.setItem('qqe_onchart', e.target.checked);
+      if(e.target.checked) updateQQEOnChart(); else clearQQEOnChart();
+    });
+  }
+
   // Start
   loadWatchlist();
   // render active studies if any
@@ -873,6 +883,12 @@ function clearQQEOverlay(){
   cont.innerHTML = '';
 }
 
+function clearQQEOnChart(){
+  const cont = document.getElementById('qqe-overlay');
+  if(!cont) return;
+  cont.innerHTML = '';
+}
+
 function renderQQEMini(result){
   const cont = document.getElementById('qqe-mini');
   if(!cont) return;
@@ -1034,5 +1050,97 @@ async function updateQQE(){
     const qqe = computeQQE(data.closes, 14, 5);
     if(!qqe){ showToast('Not enough data to compute QQE'); clearQQEOverlay(); return; }
     renderQQEMini(qqe);
+    // if on-chart is enabled, render overlay too
+    if(localStorage.getItem('qqe_onchart') === 'true') updateQQEOnChart(qqe);
   }catch(err){ console.error('QQE update failed', err); showToast('QQE computation failed'); }
+}
+
+// Draw an approximate QQE overlay over the main chart container using SVG.
+// This is visual-only and approximate because we cannot access TradingView internal scaling.
+async function updateQQEOnChart(precomputed){
+  // precomputed optional: if not passed, compute from OHLC
+  let qqe = precomputed || null;
+  if(!qqe){
+    if(!currentSymbol) return;
+    const provider = document.getElementById('data-provider') ? document.getElementById('data-provider').value : 'alphavantage';
+    const fhKey = localStorage.getItem('fh_key') || (document.getElementById('fh-key') ? document.getElementById('fh-key').value : '');
+    const avKey = localStorage.getItem('av_key') || (document.getElementById('av-key') ? document.getElementById('av-key').value : '');
+    const sym = currentSymbol.replace(/^[^:]+:/, '');
+    let data = null;
+    try{
+      if(provider === 'finnhub' && fhKey) data = await fetchDailyFinnhub(sym, fhKey);
+      if(!data && avKey) data = await fetchDailyAlpha(sym, avKey);
+      if(!data) return;
+      qqe = computeQQE(data.closes, 14, 5);
+      if(!qqe) return;
+    }catch(e){ return; }
+  }
+
+  const overlay = document.getElementById('qqe-overlay');
+  if(!overlay) return;
+  overlay.innerHTML = '';
+  // Create SVG sized to the chart box
+  const chartBox = document.getElementById('tv_chart_container');
+  const rect = chartBox.getBoundingClientRect();
+  const w = Math.max( rect.width, 600 );
+  const h = Math.max( rect.height, 300 );
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.style.display = 'block';
+
+  // We'll map QQE values to vertical positions using a simple percentile mapping
+  const all = qqe.fast.concat(qqe.slow);
+  const maxV = Math.max(...all);
+  const minV = Math.min(...all);
+  const pad = (maxV - minV) * 0.06 || 1;
+  const top = maxV + pad;
+  const bottom = minV - pad;
+  const n = qqe.fast.length;
+  function xAt(i){ return (i / Math.max(1, n-1)) * w; }
+  function yAt(v){ return h - ((v - bottom) / Math.max(1e-9, (top - bottom))) * h; }
+
+  // Draw slow and fast lines with low opacity so they overlay subtly
+  const buildPathD = (arr) => arr.map((v,i) => `${xAt(i)},${yAt(v)}`).join(' ');
+  const slowPath = document.createElementNS(svgNS, 'polyline');
+  slowPath.setAttribute('points', buildPathD(qqe.slow));
+  slowPath.setAttribute('fill', 'none');
+  slowPath.setAttribute('stroke', 'rgba(59,130,246,0.9)');
+  slowPath.setAttribute('stroke-width', '2');
+  slowPath.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(slowPath);
+
+  const fastPath = document.createElementNS(svgNS, 'polyline');
+  fastPath.setAttribute('points', buildPathD(qqe.fast));
+  fastPath.setAttribute('fill', 'none');
+  fastPath.setAttribute('stroke', 'rgba(139,28,255,0.9)');
+  fastPath.setAttribute('stroke-width', '2');
+  fastPath.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(fastPath);
+
+  // shaded fill between them
+  const polyPts = qqe.fast.map((v,i)=>`${xAt(i)},${yAt(v)}`).join(' ') + ' ' + qqe.slow.slice().reverse().map((v,i)=>`${xAt(n-1-i)},${yAt(v)}`).join(' ');
+  const band = document.createElementNS(svgNS, 'polygon');
+  band.setAttribute('points', polyPts);
+  band.setAttribute('fill', 'rgba(34,197,94,0.06)');
+  svg.appendChild(band);
+
+  // Add markers for last buy/sell signals
+  if(qqe.signals && qqe.signals.length){
+    qqe.signals.slice(-6).forEach(s => {
+      const cx = xAt(s.i);
+      const cy = yAt(s.y);
+      const c = document.createElementNS(svgNS, 'circle');
+      c.setAttribute('cx', cx);
+      c.setAttribute('cy', cy);
+      c.setAttribute('r', 4);
+      c.setAttribute('fill', s.type === 'buy' ? 'rgba(16,185,129,0.95)' : 'rgba(239,68,68,0.95)');
+      c.setAttribute('stroke', '#071122'); c.setAttribute('stroke-width', '1');
+      svg.appendChild(c);
+    });
+  }
+
+  overlay.appendChild(svg);
 }

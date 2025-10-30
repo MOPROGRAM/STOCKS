@@ -19,8 +19,8 @@ body{background:radial-gradient(1200px 400px at 10% 10%, rgba(79,140,255,0.06), 
 #toggle-list:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(20,30,60,0.55)}
 .layout{display:flex;gap:18px;padding:12px;align-items:stretch;width:92%;max-width:none;margin:6px auto}
 .chart-area{flex:3;min-width:0;display:flex;flex-direction:column}
-.chart-box{flex:1}
-.watchlist{flex:1;max-width:420px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:8px;height:calc(100vh - 180px);overflow:auto;box-shadow:0 18px 50px rgba(2,6,23,0.6);backdrop-filter: blur(8px);border:1px solid rgba(255,255,255,0.04)}
+.chart-box{flex:1;position:relative}
+.watchlist{flex:1;max-width:460px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:12px;height:calc(100vh - 180px);overflow:auto;box-shadow:0 18px 50px rgba(2,6,23,0.6);backdrop-filter: blur(8px);border:1px solid rgba(255,255,255,0.04)}
 /* modern scrolling polish */
 .watchlist{position:relative;overscroll-behavior:contain;scroll-behavior:smooth;}
 .watchlist::before,.watchlist::after{content:'';position:absolute;left:12px;right:12px;height:22px;pointer-events:none;border-radius:10px}
@@ -42,7 +42,7 @@ body{background:radial-gradient(1200px 400px at 10% 10%, rgba(79,140,255,0.06), 
 
 /* subtle touch: reduce overscroll glow on some mobile browsers */
 html,body{ -webkit-overflow-scrolling: touch; }
-.chart-box{height:calc(100vh - 180px);border-radius:16px;overflow:hidden;background:linear-gradient(180deg, rgba(6,10,20,0.45), rgba(2,6,12,0.6));box-shadow:0 20px 60px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.02)}
+.chart-box{height:calc(100vh - 180px);border-radius:16px;overflow:hidden;background:linear-gradient(180deg, rgba(6,10,20,0.45), rgba(2,6,12,0.6));box-shadow:0 20px 60px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.02);position:relative}
 .chart-toolbar{display:flex;align-items:center;gap:12px;padding:10px 6px 12px}
 .selected-symbol{font-weight:700;font-size:18px;color:#fff;background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));padding:6px 8px;border-radius:12px}
 .chart-controls{margin-left:auto;display:flex;gap:12px;align-items:center}
@@ -54,9 +54,10 @@ html,body{ -webkit-overflow-scrolling: touch; }
 #study-select{padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,0.03);background:linear-gradient(90deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));color:var(--muted)}
 #add-study,#clear-studies{padding:8px 12px;border-radius:10px;border:0;background:linear-gradient(90deg, rgba(79,140,255,0.08), rgba(79,140,255,0.02));color:#fff;cursor:pointer;box-shadow:0 8px 24px rgba(12,18,30,0.5);transition:transform 140ms}
 #add-study:hover,#clear-studies:hover{transform:translateY(-3px)}
-.watchlist-header{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
-.watchlist-header h2{margin:0}
-.watchlist-edit{display:flex;gap:8px;margin-top:8px}
+.watchlist-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.watchlist-header h2{margin:0;font-size:18px}
+#clear-watchlist{padding:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted);cursor:pointer}
+.watchlist-edit{display:flex;gap:8px;margin-top:8px;flex-direction:column}
 #filter{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit;outline:none}
 #new-symbol{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
 #add-symbol,#reset-watchlist,#export-watchlist{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted);cursor:pointer}
