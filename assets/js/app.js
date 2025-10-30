@@ -101,15 +101,15 @@ function renderList(list){
 
     const viewBtn = document.createElement('button');
     viewBtn.textContent = 'View';
-    viewBtn.addEventListener('click', ()=> onSelect(sym));
+  viewBtn.addEventListener('click', (e)=>{ e.stopPropagation(); onSelect(sym); });
 
     const editBtn = document.createElement('button');
     editBtn.textContent = 'Edit';
-    editBtn.addEventListener('click', ()=> editSymbol(sym));
+  editBtn.addEventListener('click', (e)=>{ e.stopPropagation(); editSymbol(sym); });
 
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Delete';
-    delBtn.addEventListener('click', ()=> removeSymbol(sym));
+  delBtn.addEventListener('click', (e)=>{ e.stopPropagation(); removeSymbol(sym); });
 
     actions.appendChild(viewBtn);
     actions.appendChild(editBtn);
@@ -118,7 +118,9 @@ function renderList(list){
     li.appendChild(left);
     li.appendChild(actions);
 
-    li.addEventListener('keydown', (e)=>{ if(e.key=== 'Enter') onSelect(sym); });
+  // Select symbol when clicking the row (but ignore clicks on action buttons)
+  li.addEventListener('click', (e)=>{ if(e.target.closest && e.target.closest('.symbol-actions')) return; onSelect(sym); });
+  li.addEventListener('keydown', (e)=>{ if(e.key=== 'Enter') onSelect(sym); });
     ul.appendChild(li);
   });
 }
@@ -263,20 +265,9 @@ function exportWatchlist(){
 // Studies manager
 function addStudy(name){
   if(!name) return;
-  if(name === 'QQE'){
-    // QQE: add as a local JS-based study (rendered in a mini panel) since the public widget
-    // doesn't accept custom Pine scripts. We'll persist the study and render the QQE panel.
-  }
   // Special handling for ZigZag: it's a local overlay not a TradingView built-in study
   if(name === 'ZIGZAG'){
     // (ZigZag support removed)
-    return;
-  }
-  if(name === 'QQE'){
-    if(!activeStudies.includes('QQE')) activeStudies.push('QQE');
-    localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
-    renderActiveStudies();
-    try{ updateQQE(); }catch(e){ console.warn('Failed to update QQE', e); }
     return;
   }
   if(!activeStudies.includes(name)){
@@ -294,13 +285,6 @@ function removeStudy(name){
     activeStudies = activeStudies.filter(s => s !== 'ZIGZAG');
     localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
     renderActiveStudies();
-    return;
-  }
-  if(name === 'QQE'){
-    activeStudies = activeStudies.filter(s => s !== 'QQE');
-    localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
-    renderActiveStudies();
-    clearQQEOverlay();
     return;
   }
   activeStudies = activeStudies.filter(s => s !== name);
@@ -443,14 +427,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if(clearAllBtn) clearAllBtn.addEventListener('click', clearAllWatchlist);
 
   // QQE on-chart toggle
-  const qqeOnChart = document.getElementById('qqe-onchart');
-  if(qqeOnChart){
-    qqeOnChart.checked = localStorage.getItem('qqe_onchart') === 'true';
-    qqeOnChart.addEventListener('change', (e)=>{
-      localStorage.setItem('qqe_onchart', e.target.checked);
-      if(e.target.checked) updateQQEOnChart(); else clearQQEOnChart();
-    });
-  }
+
 
   // Start
   loadWatchlist();
@@ -499,9 +476,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const raw = localStorage.getItem('weight_profiles');
     if(raw) return; // already have profiles
     const defaults = {
-      "Conservative": {sma:1.2, rsi:0.8, macd:0.6, stoch:0.4, qqe:0.5},
-      "Balanced": {sma:1.0, rsi:1.0, macd:1.0, stoch:1.0, qqe:1.0},
-      "Aggressive": {sma:0.8, rsi:1.2, macd:1.4, stoch:1.2, qqe:1.0}
+      "Conservative": {sma:1.2, rsi:0.8, macd:0.6, stoch:0.4},
+      "Balanced": {sma:1.0, rsi:1.0, macd:1.0, stoch:1.0},
+      "Aggressive": {sma:0.8, rsi:1.2, macd:1.4, stoch:1.2}
     };
     localStorage.setItem('weight_profiles', JSON.stringify(defaults));
   }
@@ -707,8 +684,7 @@ function getWeights(){
     sma: parseFloat(localStorage.getItem('w_sma') || document.getElementById('w-sma').value) || 1,
     rsi: parseFloat(localStorage.getItem('w_rsi') || document.getElementById('w-rsi').value) || 1,
     macd: parseFloat(localStorage.getItem('w_macd') || document.getElementById('w-macd').value) || 1,
-    stoch: parseFloat(localStorage.getItem('w_stoch') || document.getElementById('w-stoch').value) || 1,
-    qqe: parseFloat(localStorage.getItem('w_qqe') || document.getElementById('w-qqe').value) || 1
+    stoch: parseFloat(localStorage.getItem('w_stoch') || document.getElementById('w-stoch').value) || 1
   };
 }
 
@@ -882,270 +858,4 @@ function rsi(closes, period=14){
 
 // ---------- QQE (Quantitative Qualitative Estimation) implementation (JS translation of the Pine v4 script) ----------
 // This code is adapted from the user's Pine script (MPL 2.0) and implemented in JS for a local mini panel.
-function clearQQEOverlay(){
-  const cont = document.getElementById('qqe-mini');
-  if(!cont) return;
-  cont.innerHTML = '';
-}
-
-function clearQQEOnChart(){
-  const cont = document.getElementById('qqe-overlay');
-  if(!cont) return;
-  cont.innerHTML = '';
-}
-
-function renderQQEMini(result){
-  const cont = document.getElementById('qqe-mini');
-  if(!cont) return;
-  cont.innerHTML = '';
-  const w = cont.clientWidth || 640;
-  const h = cont.clientHeight || 120;
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  svg.setAttribute('width', '100%');
-  svg.setAttribute('height', '100%');
-  svg.style.display = 'block';
-
-  if(!result || !result.fast || !result.slow) { cont.appendChild(svg); return; }
-  const fast = result.fast.slice(); // most recent first
-  const slow = result.slow.slice();
-  const n = Math.max(fast.length, slow.length);
-
-  // compute vertical scale based on combined values
-  const all = fast.concat(slow);
-  const maxV = Math.max(...all);
-  const minV = Math.min(...all);
-  const pad = (maxV - minV) * 0.06 || 1;
-  const top = maxV + pad;
-  const bottom = minV - pad;
-
-  function xAt(i){ return (i / Math.max(1, n-1)) * w; }
-  function yAt(v){ return h - ((v - bottom) / Math.max(1e-9, (top - bottom))) * h; }
-
-  // build path for fast and slow
-  const buildPath = (arr) => arr.map((val, i) => `${xAt(i)},${yAt(val)}`).join(' ');
-
-  // Fill areas: determine where fast > slow (green) and fast < slow (red)
-  const pointsFast = buildPath(fast);
-  const pointsSlow = buildPath(slow);
-
-  // Slow line (QQES)
-  const slowPoly = document.createElementNS(svgNS, 'polyline');
-  slowPoly.setAttribute('points', pointsSlow);
-  slowPoly.setAttribute('fill', 'none');
-  slowPoly.setAttribute('stroke', '#3b82f6');
-  slowPoly.setAttribute('stroke-width', '2');
-  svg.appendChild(slowPoly);
-
-  // Fast line (QQEF)
-  const fastPoly = document.createElementNS(svgNS, 'polyline');
-  fastPoly.setAttribute('points', pointsFast);
-  fastPoly.setAttribute('fill', 'none');
-  fastPoly.setAttribute('stroke', '#8b1cff');
-  fastPoly.setAttribute('stroke-width', '2');
-  svg.appendChild(fastPoly);
-
-  // highlight fill between fast and slow with clipped polygons
-  // we'll build a polygon following fast then reversed slow
-  const polyPts = fast.map((v,i)=>`${xAt(i)},${yAt(v)}`).join(' ') + ' ' + slow.slice().reverse().map((v,i)=>`${xAt(n-1-i)},${yAt(v)}`).join(' ');
-  const band = document.createElementNS(svgNS, 'polygon');
-  band.setAttribute('points', polyPts);
-  band.setAttribute('fill', 'rgba(34,197,94,0.06)');
-  svg.appendChild(band);
-
-  // Draw buy/sell markers
-  if(result.signals){
-    result.signals.forEach(s => {
-      const cx = xAt(s.i);
-      const cy = yAt(s.y);
-      const el = document.createElementNS(svgNS, 'circle');
-      el.setAttribute('cx', cx);
-      el.setAttribute('cy', cy);
-      el.setAttribute('r', 4);
-      el.setAttribute('fill', s.type === 'buy' ? '#10b981' : '#ef4444');
-      el.setAttribute('stroke', '#111827');
-      el.setAttribute('stroke-width', '1');
-      svg.appendChild(el);
-    });
-  }
-
-  cont.appendChild(svg);
-}
-
-function computeQQE(closes, length = 14, ssf = 5){
-  // closes: most recent first
-  if(!closes || closes.length < length + ssf + 3) return null;
-  // compute RSI (most recent first)
-  const rsiArr = rsi(closes, length);
-  if(!rsiArr || rsiArr.length < 3) return null;
-  // RSII = ema(rsi, SSF)
-  const RSII = ema(rsiArr, ssf);
-  if(!RSII) return null;
-  // work in chronological order to compute WWMA and ATRRSI
-  const rsChron = RSII.slice().reverse(); // oldest -> newest
-  const n = rsChron.length;
-  const wwalpha = 1 / length;
-  const TR = new Array(n).fill(0);
-  for(let i=1;i<n;i++) TR[i] = Math.abs(rsChron[i] - rsChron[i-1]);
-  const WWMA = new Array(n).fill(0);
-  WWMA[0] = TR[0];
-  for(let i=1;i<n;i++) WWMA[i] = wwalpha * TR[i] + (1 - wwalpha) * WWMA[i-1];
-  const ATRRSI = new Array(n).fill(0);
-  ATRRSI[0] = WWMA[0];
-  for(let i=1;i<n;i++) ATRRSI[i] = wwalpha * WWMA[i] + (1 - wwalpha) * ATRRSI[i-1];
-  // QQEF chronological = rsChron (since RSII was the ema)
-  const QQEFChron = rsChron;
-  const QUPChron = QQEFChron.map((v,i)=> v + ATRRSI[i] * 4.236);
-  const QDNChron = QQEFChron.map((v,i)=> v - ATRRSI[i] * 4.236);
-
-  // compute QQES slow line forward (chronological)
-  const QQESChron = new Array(n).fill(0);
-  QQESChron[0] = QQEFChron[0];
-  for(let i=1;i<n;i++){
-    const prev = QQESChron[i-1];
-    const qqef = QQEFChron[i];
-    const qqefPrev = QQEFChron[i-1];
-    const qup = QUPChron[i];
-    const qdn = QDNChron[i];
-    let next = prev;
-    if(qup < prev) next = qup;
-    else if(qqef > prev && qqefPrev < prev) next = qdn;
-    else if(qdn > prev) next = qdn;
-    else if(qqef < prev && qqefPrev > prev) next = qup;
-    else next = prev;
-    QQESChron[i] = next;
-  }
-
-  // reverse to most recent first for output
-  const fast = QQEFChron.slice().reverse();
-  const slow = QQESChron.slice().reverse();
-
-  // generate signals (crossovers) chronological easiest then reverse index
-  const signals = [];
-  // for signal detection, iterate chronological and detect cross
-  for(let i=1;i<n;i++){
-    const f0 = QQEFChron[i]; const s0 = QQESChron[i];
-    const f1 = QQEFChron[i-1]; const s1 = QQESChron[i-1];
-    if(f0 > s0 && f1 <= s1){ // buy at index i (chron)
-      // convert to most-recent-first index: idx = (n-1 - i)
-      signals.push({type:'buy', i: n - 1 - i, y: fast[n - 1 - i]});
-    }
-    if(f0 < s0 && f1 >= s1){
-      signals.push({type:'sell', i: n - 1 - i, y: fast[n - 1 - i]});
-    }
-  }
-
-  return {fast, slow, signals};
-}
-
-async function updateQQE(){
-  // only render when QQE study active
-  if(!activeStudies.includes('QQE')){ clearQQEOverlay(); return; }
-  if(!currentSymbol){ clearQQEOverlay(); return; }
-  const provider = document.getElementById('data-provider') ? document.getElementById('data-provider').value : 'alphavantage';
-  const fhKey = localStorage.getItem('fh_key') || (document.getElementById('fh-key') ? document.getElementById('fh-key').value : '');
-  const avKey = localStorage.getItem('av_key') || (document.getElementById('av-key') ? document.getElementById('av-key').value : '');
-  const sym = currentSymbol.replace(/^[^:]+:/, '');
-  let data = null;
-  try{
-    if(provider === 'finnhub' && fhKey) data = await fetchDailyFinnhub(sym, fhKey);
-    if(!data && avKey) data = await fetchDailyAlpha(sym, avKey);
-    if(!data){ showToast('No OHLC data for QQE. Provide API key or try another provider.'); clearQQEOverlay(); return; }
-    const qqe = computeQQE(data.closes, 14, 5);
-    if(!qqe){ showToast('Not enough data to compute QQE'); clearQQEOverlay(); return; }
-    renderQQEMini(qqe);
-    // if on-chart is enabled, render overlay too
-    if(localStorage.getItem('qqe_onchart') === 'true') updateQQEOnChart(qqe);
-  }catch(err){ console.error('QQE update failed', err); showToast('QQE computation failed'); }
-}
-
-// Draw an approximate QQE overlay over the main chart container using SVG.
-// This is visual-only and approximate because we cannot access TradingView internal scaling.
-async function updateQQEOnChart(precomputed){
-  // precomputed optional: if not passed, compute from OHLC
-  let qqe = precomputed || null;
-  if(!qqe){
-    if(!currentSymbol) return;
-    const provider = document.getElementById('data-provider') ? document.getElementById('data-provider').value : 'alphavantage';
-    const fhKey = localStorage.getItem('fh_key') || (document.getElementById('fh-key') ? document.getElementById('fh-key').value : '');
-    const avKey = localStorage.getItem('av_key') || (document.getElementById('av-key') ? document.getElementById('av-key').value : '');
-    const sym = currentSymbol.replace(/^[^:]+:/, '');
-    let data = null;
-    try{
-      if(provider === 'finnhub' && fhKey) data = await fetchDailyFinnhub(sym, fhKey);
-      if(!data && avKey) data = await fetchDailyAlpha(sym, avKey);
-      if(!data) return;
-      qqe = computeQQE(data.closes, 14, 5);
-      if(!qqe) return;
-    }catch(e){ return; }
-  }
-
-  const overlay = document.getElementById('qqe-overlay');
-  if(!overlay) return;
-  overlay.innerHTML = '';
-  // Create SVG sized to the chart box
-  const chartBox = document.getElementById('tv_chart_container');
-  const rect = chartBox.getBoundingClientRect();
-  const w = Math.max( rect.width, 600 );
-  const h = Math.max( rect.height, 300 );
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('width', '100%');
-  svg.setAttribute('height', '100%');
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  svg.style.display = 'block';
-
-  // We'll map QQE values to vertical positions using a simple percentile mapping
-  const all = qqe.fast.concat(qqe.slow);
-  const maxV = Math.max(...all);
-  const minV = Math.min(...all);
-  const pad = (maxV - minV) * 0.06 || 1;
-  const top = maxV + pad;
-  const bottom = minV - pad;
-  const n = qqe.fast.length;
-  function xAt(i){ return (i / Math.max(1, n-1)) * w; }
-  function yAt(v){ return h - ((v - bottom) / Math.max(1e-9, (top - bottom))) * h; }
-
-  // Draw slow and fast lines with low opacity so they overlay subtly
-  const buildPathD = (arr) => arr.map((v,i) => `${xAt(i)},${yAt(v)}`).join(' ');
-  const slowPath = document.createElementNS(svgNS, 'polyline');
-  slowPath.setAttribute('points', buildPathD(qqe.slow));
-  slowPath.setAttribute('fill', 'none');
-  slowPath.setAttribute('stroke', 'rgba(59,130,246,0.9)');
-  slowPath.setAttribute('stroke-width', '2');
-  slowPath.setAttribute('stroke-linejoin', 'round');
-  svg.appendChild(slowPath);
-
-  const fastPath = document.createElementNS(svgNS, 'polyline');
-  fastPath.setAttribute('points', buildPathD(qqe.fast));
-  fastPath.setAttribute('fill', 'none');
-  fastPath.setAttribute('stroke', 'rgba(139,28,255,0.9)');
-  fastPath.setAttribute('stroke-width', '2');
-  fastPath.setAttribute('stroke-linejoin', 'round');
-  svg.appendChild(fastPath);
-
-  // shaded fill between them
-  const polyPts = qqe.fast.map((v,i)=>`${xAt(i)},${yAt(v)}`).join(' ') + ' ' + qqe.slow.slice().reverse().map((v,i)=>`${xAt(n-1-i)},${yAt(v)}`).join(' ');
-  const band = document.createElementNS(svgNS, 'polygon');
-  band.setAttribute('points', polyPts);
-  band.setAttribute('fill', 'rgba(34,197,94,0.06)');
-  svg.appendChild(band);
-
-  // Add markers for last buy/sell signals
-  if(qqe.signals && qqe.signals.length){
-    qqe.signals.slice(-6).forEach(s => {
-      const cx = xAt(s.i);
-      const cy = yAt(s.y);
-      const c = document.createElementNS(svgNS, 'circle');
-      c.setAttribute('cx', cx);
-      c.setAttribute('cy', cy);
-      c.setAttribute('r', 4);
-      c.setAttribute('fill', s.type === 'buy' ? 'rgba(16,185,129,0.95)' : 'rgba(239,68,68,0.95)');
-      c.setAttribute('stroke', '#071122'); c.setAttribute('stroke-width', '1');
-      svg.appendChild(c);
-    });
-  }
-
-  overlay.appendChild(svg);
-}
+// QQE indicator support removed per user request

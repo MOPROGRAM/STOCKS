@@ -90,14 +90,14 @@ html,body{ -webkit-overflow-scrolling: touch; }
 
 /* import/export file input is hidden; style export/import buttons */
 #export-profiles,#import-profiles{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;cursor:pointer}
-.symbols-list{list-style:none;padding:6px;margin:0;display:grid;grid-template-columns:repeat(4, 1fr);gap:12px}
-.symbols-list li{display:flex;flex-direction:column;justify-content:space-between;align-items:stretch;padding:12px;border-radius:12px;background:linear-gradient(90deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));cursor:pointer;transition:all 180ms cubic-bezier(.2,.9,.2,1)}
-.symbols-list li:hover{transform:translateY(-4px);box-shadow:0 10px 26px rgba(12,18,30,0.55);} 
-.symbol{font-weight:700}
+.symbols-list{list-style:none;padding:6px;margin:0;display:block}
+.symbols-list li{display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:10px;background:linear-gradient(90deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));cursor:pointer;transition:background 160ms, transform 160ms}
+.symbols-list li:hover{background:linear-gradient(90deg, rgba(79,140,255,0.04), rgba(255,255,255,0.01));transform:translateY(-2px);box-shadow:0 8px 20px rgba(12,18,30,0.45);} 
+.symbol{font-weight:700;display:inline-block}
 .meta{color:var(--muted);font-size:13px}
 .symbols-list li.active{background:linear-gradient(90deg, rgba(79,140,255,0.08), rgba(79,140,255,0.03));box-shadow:inset 0 0 0 1px rgba(79,140,255,0.06)}
 .symbol-badge{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));margin-right:12px;font-weight:700}
-.symbol-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.symbol-row{display:flex;align-items:center;gap:12px}
 
 .symbol-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .symbol-actions button{padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted);cursor:pointer}
@@ -138,6 +138,4 @@ html,body{ -webkit-overflow-scrolling: touch; }
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:28px;background:rgba(10,16,26,0.92);color:#fff;padding:10px 16px;border-radius:10px;box-shadow:0 8px 30px rgba(2,6,23,0.6);opacity:0;pointer-events:none;transition:opacity 220ms ease}
 .toast.show{opacity:1;pointer-events:auto}
 
-/* QQE mini panel uses same visual class (.zigzag-mini) so keep styles for small indicators */
-.zigzag-mini{height:140px;margin-top:12px;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.03);background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));padding:6px}
-.zigzag-mini svg{width:100%;height:100%;display:block}
+/* Small indicator panel styles removed (QQE removed) */
