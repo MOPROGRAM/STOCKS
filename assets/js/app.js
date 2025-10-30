@@ -35,6 +35,8 @@ function createWidget(symbol){
   document.querySelectorAll('.interval-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.interval === currentInterval);
   });
+  // after creating the widget, refresh overlay drawings (if any)
+  try{ if(typeof updateZigZag === 'function') setTimeout(updateZigZag, 800); }catch(e){ console.warn('updateZigZag scheduling failed', e); }
 }
 
 function normalizeSymbol(sym){
@@ -237,7 +239,8 @@ function exportWatchlist(){
 function addStudy(name){
   if(!name) return;
   if(name === 'QQE'){
-    // QQE may not be available in the basic widget; still store request so we try to add it
+    // QQE: add as a local JS-based study (rendered in a mini panel) since the public widget
+    // doesn't accept custom Pine scripts. We'll persist the study and render the QQE panel.
   }
   // Special handling for ZigZag: it's a local overlay not a TradingView built-in study
   if(name === 'ZIGZAG'){
@@ -248,6 +251,13 @@ function addStudy(name){
     renderActiveStudies();
     // compute and render overlay
     try{ updateZigZag(); }catch(e){ console.warn('Failed to update ZigZag', e); }
+    return;
+  }
+  if(name === 'QQE'){
+    if(!activeStudies.includes('QQE')) activeStudies.push('QQE');
+    localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
+    renderActiveStudies();
+    try{ updateQQE(); }catch(e){ console.warn('Failed to update QQE', e); }
     return;
   }
   if(!activeStudies.includes(name)){
@@ -266,6 +276,13 @@ function removeStudy(name){
     localStorage.setItem('zigzag_on', false);
     renderActiveStudies();
     clearZigZagOverlay();
+    return;
+  }
+  if(name === 'QQE'){
+    activeStudies = activeStudies.filter(s => s !== 'QQE');
+    localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
+    renderActiveStudies();
+    clearQQEOverlay();
     return;
   }
   activeStudies = activeStudies.filter(s => s !== name);
@@ -287,6 +304,23 @@ function renderActiveStudies(){
     btn.title = 'Remove study';
     btn.textContent = '✕';
     btn.addEventListener('click', ()=> removeStudy(s));
+    // clicking the chip toggles ZigZag overlay when the chip is ZigZag
+    if(s === 'ZIGZAG'){
+      // reflect current on/off
+      const on = localStorage.getItem('zigzag_on') === 'true';
+      if(on) chip.classList.add('active');
+      chip.style.cursor = 'pointer';
+      chip.title = 'Toggle ZigZag overlay';
+      chip.addEventListener('click', (e)=>{
+        // avoid triggering remove button
+        if(e.target === btn) return;
+        const cur = localStorage.getItem('zigzag_on') === 'true';
+        const next = !cur;
+        localStorage.setItem('zigzag_on', next);
+        if(next){ chip.classList.add('active'); updateZigZag(); }
+        else { chip.classList.remove('active'); clearZigZagOverlay(); }
+      });
+    }
     chip.appendChild(label);
     chip.appendChild(btn);
     container.appendChild(chip);
@@ -1098,4 +1132,176 @@ async function updateZigZag(){
     const pivots = computeZigZag(data.closes, thr);
     renderZigZagOverlay(pivots, data.closes);
   }catch(err){ console.error('ZigZag update failed', err); showToast('ZigZag computation failed'); }
+}
+
+// ---------- QQE (Quantitative Qualitative Estimation) implementation (JS translation of the Pine v4 script) ----------
+// This code is adapted from the user's Pine script (MPL 2.0) and implemented in JS for a local mini panel.
+function clearQQEOverlay(){
+  const cont = document.getElementById('qqe-mini');
+  if(!cont) return;
+  cont.innerHTML = '';
+}
+
+function renderQQEMini(result){
+  const cont = document.getElementById('qqe-mini');
+  if(!cont) return;
+  cont.innerHTML = '';
+  const w = cont.clientWidth || 640;
+  const h = cont.clientHeight || 120;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  svg.style.display = 'block';
+
+  if(!result || !result.fast || !result.slow) { cont.appendChild(svg); return; }
+  const fast = result.fast.slice(); // most recent first
+  const slow = result.slow.slice();
+  const n = Math.max(fast.length, slow.length);
+
+  // compute vertical scale based on combined values
+  const all = fast.concat(slow);
+  const maxV = Math.max(...all);
+  const minV = Math.min(...all);
+  const pad = (maxV - minV) * 0.06 || 1;
+  const top = maxV + pad;
+  const bottom = minV - pad;
+
+  function xAt(i){ return (i / Math.max(1, n-1)) * w; }
+  function yAt(v){ return h - ((v - bottom) / Math.max(1e-9, (top - bottom))) * h; }
+
+  // build path for fast and slow
+  const buildPath = (arr) => arr.map((val, i) => `${xAt(i)},${yAt(val)}`).join(' ');
+
+  // Fill areas: determine where fast > slow (green) and fast < slow (red)
+  const pointsFast = buildPath(fast);
+  const pointsSlow = buildPath(slow);
+
+  // Slow line (QQES)
+  const slowPoly = document.createElementNS(svgNS, 'polyline');
+  slowPoly.setAttribute('points', pointsSlow);
+  slowPoly.setAttribute('fill', 'none');
+  slowPoly.setAttribute('stroke', '#3b82f6');
+  slowPoly.setAttribute('stroke-width', '2');
+  svg.appendChild(slowPoly);
+
+  // Fast line (QQEF)
+  const fastPoly = document.createElementNS(svgNS, 'polyline');
+  fastPoly.setAttribute('points', pointsFast);
+  fastPoly.setAttribute('fill', 'none');
+  fastPoly.setAttribute('stroke', '#8b1cff');
+  fastPoly.setAttribute('stroke-width', '2');
+  svg.appendChild(fastPoly);
+
+  // highlight fill between fast and slow with clipped polygons
+  // we'll build a polygon following fast then reversed slow
+  const polyPts = fast.map((v,i)=>`${xAt(i)},${yAt(v)}`).join(' ') + ' ' + slow.slice().reverse().map((v,i)=>`${xAt(n-1-i)},${yAt(v)}`).join(' ');
+  const band = document.createElementNS(svgNS, 'polygon');
+  band.setAttribute('points', polyPts);
+  band.setAttribute('fill', 'rgba(34,197,94,0.06)');
+  svg.appendChild(band);
+
+  // Draw buy/sell markers
+  if(result.signals){
+    result.signals.forEach(s => {
+      const cx = xAt(s.i);
+      const cy = yAt(s.y);
+      const el = document.createElementNS(svgNS, 'circle');
+      el.setAttribute('cx', cx);
+      el.setAttribute('cy', cy);
+      el.setAttribute('r', 4);
+      el.setAttribute('fill', s.type === 'buy' ? '#10b981' : '#ef4444');
+      el.setAttribute('stroke', '#111827');
+      el.setAttribute('stroke-width', '1');
+      svg.appendChild(el);
+    });
+  }
+
+  cont.appendChild(svg);
+}
+
+function computeQQE(closes, length = 14, ssf = 5){
+  // closes: most recent first
+  if(!closes || closes.length < length + ssf + 3) return null;
+  // compute RSI (most recent first)
+  const rsiArr = rsi(closes, length);
+  if(!rsiArr || rsiArr.length < 3) return null;
+  // RSII = ema(rsi, SSF)
+  const RSII = ema(rsiArr, ssf);
+  if(!RSII) return null;
+  // work in chronological order to compute WWMA and ATRRSI
+  const rsChron = RSII.slice().reverse(); // oldest -> newest
+  const n = rsChron.length;
+  const wwalpha = 1 / length;
+  const TR = new Array(n).fill(0);
+  for(let i=1;i<n;i++) TR[i] = Math.abs(rsChron[i] - rsChron[i-1]);
+  const WWMA = new Array(n).fill(0);
+  WWMA[0] = TR[0];
+  for(let i=1;i<n;i++) WWMA[i] = wwalpha * TR[i] + (1 - wwalpha) * WWMA[i-1];
+  const ATRRSI = new Array(n).fill(0);
+  ATRRSI[0] = WWMA[0];
+  for(let i=1;i<n;i++) ATRRSI[i] = wwalpha * WWMA[i] + (1 - wwalpha) * ATRRSI[i-1];
+  // QQEF chronological = rsChron (since RSII was the ema)
+  const QQEFChron = rsChron;
+  const QUPChron = QQEFChron.map((v,i)=> v + ATRRSI[i] * 4.236);
+  const QDNChron = QQEFChron.map((v,i)=> v - ATRRSI[i] * 4.236);
+
+  // compute QQES slow line forward (chronological)
+  const QQESChron = new Array(n).fill(0);
+  QQESChron[0] = QQEFChron[0];
+  for(let i=1;i<n;i++){
+    const prev = QQESChron[i-1];
+    const qqef = QQEFChron[i];
+    const qqefPrev = QQEFChron[i-1];
+    const qup = QUPChron[i];
+    const qdn = QDNChron[i];
+    let next = prev;
+    if(qup < prev) next = qup;
+    else if(qqef > prev && qqefPrev < prev) next = qdn;
+    else if(qdn > prev) next = qdn;
+    else if(qqef < prev && qqefPrev > prev) next = qup;
+    else next = prev;
+    QQESChron[i] = next;
+  }
+
+  // reverse to most recent first for output
+  const fast = QQEFChron.slice().reverse();
+  const slow = QQESChron.slice().reverse();
+
+  // generate signals (crossovers) chronological easiest then reverse index
+  const signals = [];
+  // for signal detection, iterate chronological and detect cross
+  for(let i=1;i<n;i++){
+    const f0 = QQEFChron[i]; const s0 = QQESChron[i];
+    const f1 = QQEFChron[i-1]; const s1 = QQESChron[i-1];
+    if(f0 > s0 && f1 <= s1){ // buy at index i (chron)
+      // convert to most-recent-first index: idx = (n-1 - i)
+      signals.push({type:'buy', i: n - 1 - i, y: fast[n - 1 - i]});
+    }
+    if(f0 < s0 && f1 >= s1){
+      signals.push({type:'sell', i: n - 1 - i, y: fast[n - 1 - i]});
+    }
+  }
+
+  return {fast, slow, signals};
+}
+
+async function updateQQE(){
+  // only render when QQE study active
+  if(!activeStudies.includes('QQE')){ clearQQEOverlay(); return; }
+  if(!currentSymbol){ clearQQEOverlay(); return; }
+  const provider = document.getElementById('data-provider') ? document.getElementById('data-provider').value : 'alphavantage';
+  const fhKey = localStorage.getItem('fh_key') || (document.getElementById('fh-key') ? document.getElementById('fh-key').value : '');
+  const avKey = localStorage.getItem('av_key') || (document.getElementById('av-key') ? document.getElementById('av-key').value : '');
+  const sym = currentSymbol.replace(/^[^:]+:/, '');
+  let data = null;
+  try{
+    if(provider === 'finnhub' && fhKey) data = await fetchDailyFinnhub(sym, fhKey);
+    if(!data && avKey) data = await fetchDailyAlpha(sym, avKey);
+    if(!data){ showToast('No OHLC data for QQE. Provide API key or try another provider.'); clearQQEOverlay(); return; }
+    const qqe = computeQQE(data.closes, 14, 5);
+    if(!qqe){ showToast('Not enough data to compute QQE'); clearQQEOverlay(); return; }
+    renderQQEMini(qqe);
+  }catch(err){ console.error('QQE update failed', err); showToast('QQE computation failed'); }
 }
