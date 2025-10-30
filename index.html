@@ -23,9 +23,30 @@
   </header>
 
   <main class="layout">
+    <div class="page-edge left-edge"></div>
     <section id="chart-area" class="chart-area">
       <div class="chart-toolbar">
         <div id="selected-symbol" class="selected-symbol">Loading...</div>
+        <div class="chart-controls">
+          <div class="intervals" role="tablist" aria-label="Intervals">
+            <button data-interval="60" class="interval-btn">1h</button>
+            <button data-interval="120" class="interval-btn">2h</button>
+            <button data-interval="240" class="interval-btn">4h</button>
+            <button data-interval="D" class="interval-btn">1D</button>
+          </div>
+          <div class="studies-controls">
+            <select id="study-select">
+              <option value="Moving Average@tv-basicstudies">Moving Average</option>
+              <option value="RSI@tv-basicstudies">RSI</option>
+              <option value="Bollinger Bands@tv-basicstudies">Bollinger Bands</option>
+              <option value="MACD@tv-basicstudies">MACD</option>
+              <option value="QQE">QQE (if available)</option>
+            </select>
+            <button id="add-study">Add</button>
+            <button id="clear-studies">Clear</button>
+          </div>
+          <div id="active-studies" class="active-studies" aria-live="polite"></div>
+        </div>
       </div>
       <div id="tv_chart_container" class="chart-box"></div>
     </section>
@@ -34,10 +55,18 @@
       <div class="watchlist-header">
         <h2>Watchlist</h2>
         <input id="filter" placeholder="Filter symbols" aria-label="Filter symbols" />
+        <div class="watchlist-edit">
+          <input id="new-symbol" placeholder="Add symbol (e.g. TSLA)" />
+          <button id="add-symbol">Add</button>
+          <button id="reset-watchlist" title="Reset to default list">Reset</button>
+          <button id="export-watchlist" title="Export watchlist JSON">Export</button>
+        </div>
       </div>
       <ul id="symbols" class="symbols-list"></ul>
     </aside>
+    <div class="page-edge right-edge"></div>
   </main>
+  <div id="toast" class="toast" aria-hidden="true"></div>
 
   <footer class="footer">
     <small>Built for Netlify — TradingView widget embedded</small>
