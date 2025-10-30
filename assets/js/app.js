@@ -359,7 +359,8 @@ async function runScan(maxCount = 5){
     status.textContent = `Scanning ${i+1}/${list.length}: ${sym}`;
     try{
       const data = await fetchDailyAlpha(sym, apiKey);
-      if(!data || data.length < 30){
+      // data: {closes, highs, lows}
+      if(!data || !data.closes || data.closes.length < 50){
         results.push({symbol: sym, score: 0, reason: 'insufficient data'});
       } else {
         const scoreObj = analyzeSeries(data);
@@ -395,36 +396,150 @@ function sleep(ms){ return new Promise(res=>setTimeout(res, ms)); }
 async function fetchDailyAlpha(symbol, apiKey){
   // alpha vantage: TIME_SERIES_DAILY_ADJUSTED
   if(!apiKey){
-    // no API key: try a lightweight no-key endpoint (not reliable) -> return null
+    // no API key: can't fetch reliable OHLC series
     return null;
   }
   const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${encodeURIComponent(symbol)}&outputsize=compact&apikey=${apiKey}`;
   const res = await fetch(url);
   const json = await res.json();
-  const series = json['Time Series (Daily)'] || json['Time Series (60min)'] || null;
+  const series = json['Time Series (Daily)'] || null;
   if(!series) return null;
-  // convert to descending (most recent first) array of closes
+  // convert to descending (most recent first) arrays of closes, highs, lows
   const dates = Object.keys(series).sort((a,b)=> new Date(b) - new Date(a));
-  return dates.map(d => parseFloat(series[d]['4. close']));
+  const closes = [], highs = [], lows = [];
+  dates.forEach(d => {
+    const rec = series[d];
+    closes.push(parseFloat(rec['4. close']));
+    highs.push(parseFloat(rec['2. high']));
+    lows.push(parseFloat(rec['3. low']));
+  });
+  return {closes, highs, lows};
 }
 
-function analyzeSeries(closes){
-  // expects closes array with most recent first
-  // compute sma short (10), sma long (50) and rsi(14)
-  const short = sma(closes, 10);
-  const long = sma(closes, 50);
-  const rsiV = rsi(closes,14);
+function analyzeSeries(data){
+  // data: {closes, highs, lows} with most recent first
+  const closes = data.closes;
+  const highs = data.highs;
+  const lows = data.lows;
+
+  // basic checks
+  if(!closes || closes.length < 50) return {score:0, reason:'insufficient data'};
+
+  const shortSMA = sma(closes, 10);
+  const longSMA = sma(closes, 50);
+  const rsiV = rsi(closes, 14);
+
+  // MACD
+  const mac = macd(closes, 12, 26, 9);
+  // Stochastic
+  const stoch = stochastic(highs, lows, closes, 14, 3);
+  // QQE approximation based on smoothed RSI
+  const qqe = qqeApprox(closes, 14);
+
   let score = 0; const reasons = [];
-  if(short && long){
-    if(short[0] > long[0]){ score += 1.2; reasons.push('SMA bullish (10>50)'); }
-    else if(short[0] < long[0]){ reasons.push('SMA not crossed'); }
+
+  // SMA crossover
+  if(shortSMA && longSMA){
+    if(shortSMA[0] > longSMA[0]){ score += 1.0; reasons.push('SMA bullish (10>50)'); }
   }
+
+  // RSI behavior
   if(rsiV){
-    if(rsiV[0] < 35){ score += 0.8; reasons.push('RSI oversold'); }
-    else if(rsiV[0] >=35 && rsiV[0] <=50){ score += 0.5; reasons.push('RSI neutral (good entry)'); }
+    if(rsiV[0] < 30){ score += 1.0; reasons.push('RSI oversold'); }
+    else if(rsiV[0] >=30 && rsiV[0] <=45){ score += 0.6; reasons.push('RSI favorable (30-45)'); }
   }
-  const reason = reasons.join(' · ') || 'no signal';
+
+  // MACD signals
+  if(mac && mac.macd && mac.signal){
+    if(mac.macd[0] > mac.signal[0]){ score += 1.1; reasons.push('MACD bullish cross'); }
+    // positive and rising histogram
+    if(mac.hist && mac.hist.length > 1 && mac.hist[0] > mac.hist[1]){ score += 0.5; reasons.push('MACD histogram rising'); }
+  }
+
+  // Stochastic: oversold and %K crossing up %D
+  if(stoch && stoch.k && stoch.d){
+    if(stoch.k[0] < 20){ score += 0.8; reasons.push('Stochastic oversold'); }
+    if(stoch.k[0] > stoch.d[0] && stoch.k[1] <= stoch.d[1]){ score += 0.6; reasons.push('Stochastic K crossed up D'); }
+  }
+
+  // QQE approx: smoothed RSI rising and below 50 (possible entry)
+  if(qqe && qqe.smoothed && qqe.smoothed.length){
+    if(qqe.smoothed[0] > qqe.smoothed[1] && qqe.smoothed[0] < 55){ score += 0.7; reasons.push('QQE approx rising (below 55)'); }
+  }
+
+  const reason = reasons.length ? reasons.join(' · ') : 'no clear signal';
   return {score, reason};
+}
+
+// EMA helper (returns array most recent first)
+function ema(arr, period){
+  if(!arr || arr.length < period) return null;
+  const out = [];
+  const k = 2/(period+1);
+  // compute EMA from oldest to newest then reverse
+  const rev = [...arr].reverse();
+  let prev = rev.slice(0,period).reduce((a,b)=>a+b,0)/period; // SMA as seed
+  for(let i=period;i<rev.length;i++){
+    const val = rev[i];
+    prev = val * k + prev * (1-k);
+    out.push(prev);
+  }
+  // out[0] is EMA at index period, we want full alignment most recent first
+  return out.reverse();
+}
+
+function macd(closes, fast=12, slow=26, signal=9){
+  // returns {macd:[], signal:[], hist:[]} most recent first
+  if(!closes || closes.length < slow + signal) return null;
+  const emaFast = ema(closes, fast);
+  const emaSlow = ema(closes, slow);
+  if(!emaFast || !emaSlow) return null;
+  // align lengths: use the shorter length from the end
+  const len = Math.min(emaFast.length, emaSlow.length);
+  const macdLine = [];
+  for(let i=0;i<len;i++) macdLine.push(emaFast[emaFast.length - len + i] - emaSlow[emaSlow.length - len + i]);
+  // compute signal (EMA of macdLine)
+  const signalArr = ema(macdLine, signal);
+  if(!signalArr) return {macd:macdLine.reverse(), signal:[], hist:[]};
+  // align and compute histogram
+  const sigLen = Math.min(macdLine.length, signalArr.length);
+  const macdAligned = macdLine.slice(macdLine.length - sigLen);
+  const signalAligned = signalArr.slice(signalArr.length - sigLen);
+  const hist = macdAligned.map((v,i)=> v - signalAligned[i]);
+  return {macd: macdAligned.reverse(), signal: signalAligned.reverse(), hist: hist.reverse()};
+}
+
+function stochastic(highs, lows, closes, kPeriod=14, dPeriod=3){
+  // returns {k:[], d:[]} most recent first
+  if(!highs || !lows || !closes) return null;
+  const len = closes.length;
+  if(len < kPeriod + dPeriod) return null;
+  const kArr = [];
+  for(let i=0;i<=len - kPeriod;i++){
+    const sliceHigh = highs.slice(i, i+kPeriod);
+    const sliceLow = lows.slice(i, i+kPeriod);
+    const highest = Math.max(...sliceHigh);
+    const lowest = Math.min(...sliceLow);
+    const close = closes[i];
+    const k = highest === lowest ? 50 : ((close - lowest)/(highest - lowest))*100;
+    kArr.push(k);
+  }
+  // simple %D as SMA of K
+  const dArr = [];
+  for(let i=0;i<=kArr.length - dPeriod;i++){
+    const s = kArr.slice(i, i+dPeriod);
+    dArr.push(s.reduce((a,b)=>a+b,0)/dPeriod);
+  }
+  return {k: kArr.reverse(), d: dArr.reverse()};
+}
+
+function qqeApprox(closes, rsiPeriod=14){
+  // Approximate QQE by smoothing RSI with an EMA and return smoothed RSI
+  const r = rsi(closes, rsiPeriod);
+  if(!r || r.length < 3) return null;
+  // smooth with short EMA (3)
+  const smooth = ema(r, 3);
+  return {smoothed: smooth || []};
 }
 
 function sma(arr, n){
