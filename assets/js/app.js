@@ -72,23 +72,29 @@ async function loadWatchlist(){
 function renderList(list){
   const ul = document.getElementById('symbols');
   ul.innerHTML = '';
-  list.forEach(sym => {
+  list.forEach((sym, idx) => {
     const li = document.createElement('li');
     li.tabIndex = 0;
     li.title = sym;
+
+    // index badge (1-based)
+    const indexBadge = document.createElement('span');
+    indexBadge.className = 'symbol-index';
+    indexBadge.textContent = String(idx + 1);
 
     const badge = document.createElement('span');
     badge.className = 'symbol-badge';
     badge.textContent = sym.slice(0,3).toUpperCase();
 
-    const name = document.createElement('span');
+  const name = document.createElement('span');
     name.className = 'symbol';
     name.textContent = sym;
 
-    const left = document.createElement('div');
-    left.className = 'symbol-row';
-    left.appendChild(badge);
-    left.appendChild(name);
+  const left = document.createElement('div');
+  left.className = 'symbol-row';
+  left.appendChild(badge);
+  left.appendChild(name);
+  left.prepend(indexBadge);
 
     const actions = document.createElement('div');
   actions.className = 'symbol-actions';
