@@ -35,8 +35,7 @@ function createWidget(symbol){
   document.querySelectorAll('.interval-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.interval === currentInterval);
   });
-  // after creating the widget, refresh overlay drawings (if any)
-  try{ if(typeof updateZigZag === 'function') setTimeout(updateZigZag, 800); }catch(e){ console.warn('updateZigZag scheduling failed', e); }
+  // after creating the widget
 }
 
 function normalizeSymbol(sym){
@@ -63,8 +62,6 @@ async function loadWatchlist(){
       currentSymbol = s;
       createWidget(s);
       highlightActive(initial);
-      // compute zigzag overlay for initial symbol if enabled
-      try{ if(typeof updateZigZag === 'function') updateZigZag(); }catch(e){ console.warn('ZigZag init failed', e); }
     }
   }catch(e){
     console.error('Failed to load watchlist', e);
@@ -135,8 +132,8 @@ function onSelect(sym){
   createWidget(n);
   highlightActive(sym);
   localStorage.setItem('lastSymbol', sym);
-  // refresh ZigZag overlay for the newly selected symbol (if enabled)
-  try{ if(typeof updateZigZag === 'function') updateZigZag(); }catch(e){console.warn('ZigZag update failed', e);}
+  // refresh any local overlays for the newly selected symbol (QQE will update where active)
+  try{ if(typeof updateQQE === 'function') updateQQE(); }catch(e){console.warn('local overlays update failed', e);} 
 }
 
 // Watchlist editing helpers (persisted in localStorage)
@@ -267,13 +264,7 @@ function addStudy(name){
   }
   // Special handling for ZigZag: it's a local overlay not a TradingView built-in study
   if(name === 'ZIGZAG'){
-    // persist ZigZag as an active study so it appears in chips
-    if(!activeStudies.includes('ZIGZAG')) activeStudies.push('ZIGZAG');
-    localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
-    localStorage.setItem('zigzag_on', true);
-    renderActiveStudies();
-    // compute and render overlay
-    try{ updateZigZag(); }catch(e){ console.warn('Failed to update ZigZag', e); }
+    // (ZigZag support removed)
     return;
   }
   if(name === 'QQE'){
@@ -294,11 +285,10 @@ function addStudy(name){
 function removeStudy(name){
   // Special handling for ZigZag
   if(name === 'ZIGZAG'){
+    // ZigZag support removed — no-op
     activeStudies = activeStudies.filter(s => s !== 'ZIGZAG');
     localStorage.setItem('tv_studies', JSON.stringify(activeStudies));
-    localStorage.setItem('zigzag_on', false);
     renderActiveStudies();
-    clearZigZagOverlay();
     return;
   }
   if(name === 'QQE'){
@@ -327,23 +317,7 @@ function renderActiveStudies(){
     btn.title = 'Remove study';
     btn.textContent = '✕';
     btn.addEventListener('click', ()=> removeStudy(s));
-    // clicking the chip toggles ZigZag overlay when the chip is ZigZag
-    if(s === 'ZIGZAG'){
-      // reflect current on/off
-      const on = localStorage.getItem('zigzag_on') === 'true';
-      if(on) chip.classList.add('active');
-      chip.style.cursor = 'pointer';
-      chip.title = 'Toggle ZigZag overlay';
-      chip.addEventListener('click', (e)=>{
-        // avoid triggering remove button
-        if(e.target === btn) return;
-        const cur = localStorage.getItem('zigzag_on') === 'true';
-        const next = !cur;
-        localStorage.setItem('zigzag_on', next);
-        if(next){ chip.classList.add('active'); updateZigZag(); }
-        else { chip.classList.remove('active'); clearZigZagOverlay(); }
-      });
-    }
+    // no special-case chips remaining
     chip.appendChild(label);
     chip.appendChild(btn);
     container.appendChild(chip);
@@ -564,37 +538,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   ensureDefaultProfiles();
 
   // ZigZag controls wiring
-  const zzToggle = document.getElementById('toggle-zigzag');
-  const zzThreshold = document.getElementById('zigzag-threshold');
-  if(zzToggle){
-    // initialize (support button toggles or checkbox)
-    const saved = localStorage.getItem('zigzag_on');
-    if(zzToggle.tagName === 'BUTTON'){
-      const on = saved === 'true';
-      if(on){ zzToggle.classList.add('active'); zzToggle.textContent = 'Hide ZigZag'; }
-      else { zzToggle.classList.remove('active'); zzToggle.textContent = 'Show ZigZag'; }
-      zzToggle.addEventListener('click', (e)=>{
-        const isOn = zzToggle.classList.toggle('active');
-        localStorage.setItem('zigzag_on', isOn);
-        zzToggle.textContent = isOn ? 'Hide ZigZag' : 'Show ZigZag';
-        updateZigZag();
-      });
-    } else {
-      if(saved !== null) zzToggle.checked = saved === 'true';
-      zzToggle.addEventListener('change', (e)=>{
-        localStorage.setItem('zigzag_on', e.target.checked);
-        updateZigZag();
-      });
-    }
-  }
-  if(zzThreshold){
-    const savedT = localStorage.getItem('zigzag_threshold') || zzThreshold.value;
-    zzThreshold.value = savedT;
-    zzThreshold.addEventListener('change', (e)=>{
-      localStorage.setItem('zigzag_threshold', e.target.value);
-      updateZigZag();
-    });
-  }
+  // ZigZag removed — no controls to wire
 
   // Export/import handlers
   const exportBtn = document.getElementById('export-profiles');
@@ -919,251 +863,7 @@ function rsi(closes, period=14){
   return out;
 }
 
-// -------- ZigZag pivot calculator and mini-overlay renderer --------
-// computes pivot points from closes array (most recent first) using a percent threshold
-function computeZigZag(closes, thresholdPercent = 5){
-  if(!closes || closes.length < 3) return [];
-  // convert to chronological order (oldest -> newest)
-  const data = [...closes].reverse();
-  const n = data.length;
-  const pivots = [];
-
-  let lastPivotIndex = 0;
-  let lastPivotPrice = data[0];
-  let lastPivotType = null; // 'high' or 'low'
-
-  let maxSincePivot = data[0];
-  let maxIndex = 0;
-  let minSincePivot = data[0];
-  let minIndex = 0;
-
-  for(let i=1;i<n;i++){
-    const price = data[i];
-    if(price > maxSincePivot){ maxSincePivot = price; maxIndex = i; }
-    if(price < minSincePivot){ minSincePivot = price; minIndex = i; }
-
-    // check for move up from last pivot
-    const upMove = (maxSincePivot - lastPivotPrice)/Math.max(1e-9, lastPivotPrice) * 100;
-    const downMove = (lastPivotPrice - minSincePivot)/Math.max(1e-9, lastPivotPrice) * 100;
-
-    if(upMove >= thresholdPercent && (lastPivotType === 'low' || lastPivotType === null)){
-      // create high pivot at maxIndex
-      pivots.push({index: maxIndex, price: maxSincePivot, type: 'high'});
-      lastPivotIndex = maxIndex; lastPivotPrice = maxSincePivot; lastPivotType = 'high';
-      // reset trackers
-      minSincePivot = lastPivotPrice; minIndex = lastPivotIndex;
-      maxSincePivot = lastPivotPrice; maxIndex = lastPivotIndex;
-      continue;
-    }
-
-    if(downMove >= thresholdPercent && (lastPivotType === 'high' || lastPivotType === null)){
-      // create low pivot at minIndex
-      pivots.push({index: minIndex, price: minSincePivot, type: 'low'});
-      lastPivotIndex = minIndex; lastPivotPrice = minSincePivot; lastPivotType = 'low';
-      // reset trackers
-      maxSincePivot = lastPivotPrice; maxIndex = lastPivotIndex;
-      minSincePivot = lastPivotPrice; minIndex = lastPivotIndex;
-      continue;
-    }
-  }
-
-  // Always include the last bar as a potential pivot (newest)
-  const lastIdx = n-1;
-  const lastPrice = data[lastIdx];
-  // avoid duplicating same index
-  if(pivots.length === 0 || pivots[pivots.length-1].index !== lastIdx){
-    // classify last as high or low compared to previous pivot
-    const lastType = (lastPrice >= lastPivotPrice) ? 'high' : 'low';
-    pivots.push({index: lastIdx, price: lastPrice, type: lastType});
-  }
-
-  // convert pivots indexes back to the original (most recent first) indexing
-  // original index for a chronological index i is (n - 1 - i)
-  let out = pivots.map(p => ({ idx: n - 1 - p.index, price: p.price, type: p.type }));
-
-  // If pivots are too few, fall back to a simple local-extrema detector to ensure visuals
-  if(out.length < 3){
-    const local = [];
-    for(let i=1;i<n-1;i++){
-      const prev = data[i-1], cur = data[i], next = data[i+1];
-      if(cur > prev && cur > next) local.push({idx: n - 1 - i, price: cur, type: 'high'});
-      else if(cur < prev && cur < next) local.push({idx: n - 1 - i, price: cur, type: 'low'});
-      if(local.length >= 12) break;
-    }
-    // ensure at least endpoints if nothing found
-    if(local.length === 0){
-      local.push({idx: n-1, price: data[n-1], type: data[n-1] >= data[n-2] ? 'high' : 'low'});
-      local.unshift({idx: 0, price: data[0], type: data[0] >= data[1] ? 'high' : 'low'});
-    }
-    out = local;
-  }
-  return out;
-}
-
-function clearZigZagOverlay(){
-  const cont = document.getElementById('zigzag-mini');
-  if(!cont) return;
-  cont.innerHTML = '';
-}
-
-function renderZigZagOverlay(pivots, closes){
-  const cont = document.getElementById('zigzag-mini');
-  if(!cont) return;
-  cont.innerHTML = '';
-  const w = cont.clientWidth || 380;
-  const h = cont.clientHeight || 120;
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  svg.setAttribute('width', '100%');
-  svg.setAttribute('height', '100%');
-  svg.style.display = 'block';
-
-  if(!closes || closes.length === 0 || pivots.length === 0){ cont.appendChild(svg); return; }
-
-  const n = closes.length;
-  const prices = closes.slice();
-  const maxP = Math.max(...prices);
-  const minP = Math.min(...prices);
-  const pad = (maxP - minP) * 0.06;
-  const top = maxP + pad;
-  const bottom = minP - pad;
-
-  // Build polyline points connecting pivots
-  const points = pivots.map(p => {
-    const x = (p.idx / Math.max(1, n-1)) * w;
-    const y = h - ((p.price - bottom) / Math.max(1e-9, (top - bottom))) * h;
-    return {x,y, type: p.type, price: p.price, idx: p.idx};
-  });
-
-  // Draw zigzag line
-  const poly = document.createElementNS(svgNS, 'polyline');
-  poly.setAttribute('fill', 'none');
-  poly.setAttribute('stroke', '#ffce54');
-  poly.setAttribute('stroke-width', '2');
-  poly.setAttribute('stroke-linejoin', 'round');
-  poly.setAttribute('stroke-linecap', 'round');
-  poly.setAttribute('points', points.map(p => `${p.x},${p.y}`).join(' '));
-  svg.appendChild(poly);
-
-  // draw pivot points
-  points.forEach(pt => {
-    const circle = document.createElementNS(svgNS, 'circle');
-    circle.setAttribute('cx', pt.x);
-    circle.setAttribute('cy', pt.y);
-    circle.setAttribute('r', '4');
-    circle.setAttribute('fill', pt.type === 'high' ? '#ff6b6b' : '#6be56b');
-    circle.setAttribute('stroke', '#111827');
-    circle.setAttribute('stroke-width', '1');
-    svg.appendChild(circle);
-  });
-
-  // Advanced trend/channel drawing
-  const highs = points.filter(p => p.type === 'high');
-  const lows = points.filter(p => p.type === 'low');
-
-  // least-squares linear regression for (x,y)
-  function fitLine(ptArray){
-    if(!ptArray || ptArray.length < 2) return null;
-    const nPts = ptArray.length;
-    let sx=0, sy=0, sxx=0, sxy=0;
-    for(const p of ptArray){ sx += p.x; sy += p.y; sxx += p.x*p.x; sxy += p.x*p.y; }
-    const denom = (nPts * sxx - sx*sx);
-    if(Math.abs(denom) < 1e-9) return null;
-    const m = (nPts * sxy - sx*sy) / denom;
-    const b = (sy - m * sx) / nPts;
-    return {m,b};
-  }
-
-  // evaluate y for x across width
-  function yAt(line, x){ return line.m * x + line.b; }
-
-  // draw helper for an extended line across full width
-  function drawExtendedLine(lineObj, color='rgba(255,90,90,0.9)', widthPx=1.6, dash='6 4'){
-    if(!lineObj) return;
-    const y0 = yAt(lineObj, 0);
-    const y1 = yAt(lineObj, w);
-    const ln = document.createElementNS(svgNS, 'line');
-    ln.setAttribute('x1', 0); ln.setAttribute('y1', y0);
-    ln.setAttribute('x2', w); ln.setAttribute('y2', y1);
-    ln.setAttribute('stroke', color);
-    ln.setAttribute('stroke-width', String(widthPx));
-    if(dash) ln.setAttribute('stroke-dasharray', dash);
-    svg.appendChild(ln);
-  }
-
-  // compute regression lines
-  const highLine = fitLine(highs);
-  const lowLine = fitLine(lows);
-
-  if(highLine && lowLine){
-    // draw shaded channel between the two regression lines
-    const upperYs = [yAt(highLine,0), yAt(highLine,w)];
-    const lowerYs = [yAt(lowLine,w), yAt(lowLine,0)];
-    const polyPts = `0,${upperYs[0]} ${w},${upperYs[1]} ${w},${lowerYs[0]} 0,${lowerYs[1]}`;
-    const band = document.createElementNS(svgNS, 'polygon');
-    band.setAttribute('points', polyPts);
-    band.setAttribute('fill', 'rgba(255,200,80,0.06)');
-    band.setAttribute('stroke', 'none');
-    svg.appendChild(band);
-    // draw regression lines
-    drawExtendedLine(highLine, 'rgba(255,90,90,0.95)', 1.6, '6 4');
-    drawExtendedLine(lowLine, 'rgba(90,255,140,0.95)', 1.6, '6 4');
-  } else if(highLine && !lowLine){
-    // draw high regression and a parallel lower channel offset by average deviation of lows from highLine
-    const devs = lows.map(p => (p.y - yAt(highLine, p.x)));
-    const avgDev = devs.length ? devs.reduce((a,b)=>a+b,0)/devs.length : (h*0.08);
-    drawExtendedLine(highLine, 'rgba(255,90,90,0.95)', 1.6, '6 4');
-    const parallel = {m: highLine.m, b: highLine.b + avgDev};
-    drawExtendedLine(parallel, 'rgba(90,255,140,0.9)', 1.6, '6 4');
-    // shaded channel
-    const upperYs = [yAt(highLine,0), yAt(highLine,w)];
-    const lowerYs = [yAt(parallel,w), yAt(parallel,0)];
-    const polyPts2 = `0,${upperYs[0]} ${w},${upperYs[1]} ${w},${lowerYs[0]} 0,${lowerYs[1]}`;
-    const band2 = document.createElementNS(svgNS, 'polygon');
-    band2.setAttribute('points', polyPts2);
-    band2.setAttribute('fill', 'rgba(255,200,80,0.05)');
-    svg.appendChild(band2);
-  } else if(lowLine && !highLine){
-    const devs = highs.map(p => (yAt(lowLine, p.x) - p.y));
-    const avgDev = devs.length ? devs.reduce((a,b)=>a+b,0)/devs.length : (h*0.08);
-    drawExtendedLine(lowLine, 'rgba(90,255,140,0.95)', 1.6, '6 4');
-    const parallel = {m: lowLine.m, b: lowLine.b - avgDev};
-    drawExtendedLine(parallel, 'rgba(255,90,90,0.95)', 1.6, '6 4');
-    const upperYs = [yAt(parallel,0), yAt(parallel,w)];
-    const lowerYs = [yAt(lowLine,w), yAt(lowLine,0)];
-    const polyPts3 = `0,${upperYs[0]} ${w},${upperYs[1]} ${w},${lowerYs[0]} 0,${lowerYs[1]}`;
-    const band3 = document.createElementNS(svgNS, 'polygon');
-    band3.setAttribute('points', polyPts3);
-    band3.setAttribute('fill', 'rgba(255,200,80,0.05)');
-    svg.appendChild(band3);
-  }
-
-  cont.appendChild(svg);
-}
-
-// Entry: fetch data and update overlay if enabled
-async function updateZigZag(){
-  const zzToggle = document.getElementById('toggle-zigzag');
-  if(!zzToggle){ clearZigZagOverlay(); return; }
-  const enabled = zzToggle.tagName === 'BUTTON' ? zzToggle.classList.contains('active') : zzToggle.checked;
-  if(!enabled){ clearZigZagOverlay(); return; }
-  if(!currentSymbol){ showToast('Select a symbol to compute ZigZag'); return; }
-  const provider = document.getElementById('data-provider') ? document.getElementById('data-provider').value : 'alphavantage';
-  const fhKey = localStorage.getItem('fh_key') || (document.getElementById('fh-key') ? document.getElementById('fh-key').value : '');
-  const avKey = localStorage.getItem('av_key') || (document.getElementById('av-key') ? document.getElementById('av-key').value : '');
-  const thr = parseFloat(localStorage.getItem('zigzag_threshold') || document.getElementById('zigzag-threshold').value || '5');
-  // symbol for data fetch: original symbol without exchange prefix
-  const sym = currentSymbol.replace(/^[^:]+:/, '');
-  let data = null;
-  try{
-    if(provider === 'finnhub' && fhKey){ data = await fetchDailyFinnhub(sym, fhKey); }
-    if(!data && avKey){ data = await fetchDailyAlpha(sym, avKey); }
-    if(!data){ showToast('No OHLC data available for ZigZag. Provide API key or try another provider.', 4000); clearZigZagOverlay(); return; }
-    const pivots = computeZigZag(data.closes, thr);
-    renderZigZagOverlay(pivots, data.closes);
-  }catch(err){ console.error('ZigZag update failed', err); showToast('ZigZag computation failed'); }
-}
+// ZigZag feature removed: related functions and overlays deleted
 
 // ---------- QQE (Quantitative Qualitative Estimation) implementation (JS translation of the Pine v4 script) ----------
 // This code is adapted from the user's Pine script (MPL 2.0) and implemented in JS for a local mini panel.

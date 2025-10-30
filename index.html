@@ -41,22 +41,15 @@
               <option value="Bollinger Bands@tv-basicstudies">Bollinger Bands</option>
               <option value="MACD@tv-basicstudies">MACD</option>
               <option value="QQE">QQE (if available)</option>
-              <option value="ZIGZAG">ZigZag (mini-overlay)</option>
             </select>
             <button id="add-study">Add</button>
             <button id="clear-studies">Clear</button>
             <button id="add-current-to-watchlist" title="Add current symbol to watchlist">＋ Add to Watchlist</button>
           </div>
-          <div class="zigzag-controls" style="display:flex;align-items:center;gap:8px;margin-left:12px">
-            <label for="zigzag-threshold" style="color:var(--muted);font-size:13px">ZigZag %</label>
-            <input id="zigzag-threshold" type="number" min="0.5" max="20" step="0.1" value="5" style="width:80px" />
-            <button id="toggle-zigzag">Show ZigZag</button>
-          </div>
           <div id="active-studies" class="active-studies" aria-live="polite"></div>
         </div>
       </div>
       <div id="tv_chart_container" class="chart-box"></div>
-      <div id="zigzag-mini" class="zigzag-mini" aria-hidden="true"></div>
       <div id="qqe-mini" class="zigzag-mini" aria-hidden="true" style="margin-top:8px"></div>
     </section>
 
