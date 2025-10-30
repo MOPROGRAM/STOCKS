@@ -378,6 +378,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
   }
 
+  function ensureDefaultProfiles(){
+    const raw = localStorage.getItem('weight_profiles');
+    if(raw) return; // already have profiles
+    const defaults = {
+      "Conservative": {sma:1.2, rsi:0.8, macd:0.6, stoch:0.4, qqe:0.5},
+      "Balanced": {sma:1.0, rsi:1.0, macd:1.0, stoch:1.0, qqe:1.0},
+      "Aggressive": {sma:0.8, rsi:1.2, macd:1.4, stoch:1.2, qqe:1.0}
+    };
+    localStorage.setItem('weight_profiles', JSON.stringify(defaults));
+  }
+
   function saveProfile(){
     const name = (profileNameInput.value || '').trim();
     if(!name) return alert('Enter a profile name');
@@ -422,6 +433,38 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
 
   loadProfiles();
+  ensureDefaultProfiles();
+
+  // Export/import handlers
+  const exportBtn = document.getElementById('export-profiles');
+  const importBtn = document.getElementById('import-profiles');
+  const importInput = document.getElementById('import-file');
+  exportBtn.addEventListener('click', ()=>{
+    const raw = localStorage.getItem('weight_profiles') || '{}';
+    const blob = new Blob([raw], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'weight_profiles.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    showToast('Profiles exported');
+  });
+  importBtn.addEventListener('click', ()=> importInput.click());
+  importInput.addEventListener('change', (e)=>{
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    const reader = new FileReader();
+    reader.onload = function(){
+      try{
+        const parsed = JSON.parse(reader.result);
+        if(typeof parsed !== 'object') throw new Error('Invalid format');
+        localStorage.setItem('weight_profiles', JSON.stringify(parsed));
+        loadProfiles();
+        showToast('Profiles imported');
+      }catch(err){
+        alert('Failed to import profiles: invalid JSON');
+      }
+    };
+    reader.readAsText(f);
+  });
+  ensureDefaultProfiles();
 });
 
 // ---------- Scanner implementation ----------

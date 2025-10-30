@@ -60,6 +60,9 @@ body{background:radial-gradient(1200px 400px at 10% 10%, rgba(79,140,255,0.06), 
 .profile-controls input{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent}
 .profile-controls button{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;cursor:pointer}
 .profiles button{background:transparent;color:var(--muted)}
+
+/* import/export file input is hidden; style export/import buttons */
+#export-profiles,#import-profiles{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;cursor:pointer}
 .symbols-list{list-style:none;padding:6px;margin:0}
 .symbols-list li{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:10px;margin-bottom:8px;cursor:pointer;transition:all 160ms cubic-bezier(.2,.9,.2,1)}
 .symbols-list li:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(12,18,30,0.5);}
