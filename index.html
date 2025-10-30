@@ -45,6 +45,7 @@
             </select>
             <button id="add-study">Add</button>
             <button id="clear-studies">Clear</button>
+            <button id="add-current-to-watchlist" title="Add current symbol to watchlist">＋ Add to Watchlist</button>
           </div>
           <div class="zigzag-controls" style="display:flex;align-items:center;gap:8px;margin-left:12px">
             <label for="zigzag-threshold" style="color:var(--muted);font-size:13px">ZigZag %</label>
@@ -63,6 +64,9 @@
       <div class="watchlist-header">
         <h2>Watchlist</h2>
         <input id="filter" placeholder="Filter symbols" aria-label="Filter symbols" />
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+          <button id="clear-watchlist" title="Clear all saved symbols">Clear All</button>
+        </div>
         <div class="watchlist-edit">
           <input id="new-symbol" placeholder="Add symbol (e.g. TSLA)" />
           <button id="add-symbol">Add</button>

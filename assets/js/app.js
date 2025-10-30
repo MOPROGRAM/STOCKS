@@ -161,6 +161,29 @@ function addSymbol(sym){
   saveActiveList(list);
 }
 
+// Add current chart symbol to user watchlist (persisted)
+function addCurrentToWatchlist(){
+  if(!currentSymbol) return showToast('No symbol selected');
+  const sym = currentSymbol.replace(/^[^:]+:/, '');
+  let list = getActiveList();
+  if(!Array.isArray(list)) list = [];
+  // If already present, move to top
+  list = list.filter(s => s !== sym);
+  list.unshift(sym);
+  saveActiveList(list);
+  showToast(`${sym} added to watchlist`);
+}
+
+// Clear all user-saved watchlist symbols (keeps default data file untouched)
+function clearAllWatchlist(){
+  if(!confirm('Delete all symbols from your saved watchlist? This will empty your custom list.')) return;
+  localStorage.setItem('user_watchlist', JSON.stringify([]));
+  // remove lastSymbol as well
+  localStorage.removeItem('lastSymbol');
+  renderList([]);
+  showToast('Saved watchlist cleared');
+}
+
 // Parse bulk input: accepts newline-separated or comma-separated values
 function parseBulkInput(raw){
   if(!raw) return [];
@@ -431,6 +454,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
       panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
   }
+
+  // Add current to watchlist button
+  const addCur = document.getElementById('add-current-to-watchlist');
+  if(addCur) addCur.addEventListener('click', addCurrentToWatchlist);
+
+  // Clear all watchlist button
+  const clearAllBtn = document.getElementById('clear-watchlist');
+  if(clearAllBtn) clearAllBtn.addEventListener('click', clearAllWatchlist);
 
   // Start
   loadWatchlist();
