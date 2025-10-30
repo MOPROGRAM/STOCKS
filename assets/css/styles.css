@@ -84,11 +84,11 @@ body{background:radial-gradient(1200px 400px at 10% 10%, rgba(79,140,255,0.06), 
 }
 
 /* Decorative page edges */
-.page-edge{width:40px;border-radius:12px;height:calc(100vh - 60px);align-self:stretch}
+.page-edge{width:80px;border-radius:12px;height:calc(100vh - 80px);align-self:stretch}
 .left-edge{background:linear-gradient(180deg, rgba(79,140,255,0.08), transparent);box-shadow:inset 0 0 40px rgba(79,140,255,0.02)}
 .right-edge{background:linear-gradient(180deg, rgba(45,212,191,0.06), transparent);box-shadow:inset 0 0 40px rgba(45,212,191,0.02)}
 
-@media (max-width:900px){
+@media (max-width:1100px){
   .page-edge{display:none}
 }
 
@@ -101,3 +101,11 @@ body{background:radial-gradient(1200px 400px at 10% 10%, rgba(79,140,255,0.06), 
 /* toast */
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:28px;background:rgba(10,16,26,0.92);color:#fff;padding:10px 16px;border-radius:10px;box-shadow:0 8px 30px rgba(2,6,23,0.6);opacity:0;pointer-events:none;transition:opacity 220ms ease}
 .toast.show{opacity:1;pointer-events:auto}
+
+/* ZigZag mini chart */
+.zigzag-mini{height:140px;margin-top:12px;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.03);background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));padding:6px}
+.zigzag-mini svg{width:100%;height:100%;display:block}
+.zigzag-point{fill:#ffb86b;stroke:#fff;stroke-width:0.8}
+.zigzag-line{stroke:#f97316;stroke-width:2;fill:none;opacity:0.9}
+.trend-line{stroke:#60a5fa;stroke-width:2;stroke-dasharray:6 4;opacity:0.9}
+.support-line{stroke:#34d399;stroke-width:2;stroke-dasharray:6 4;opacity:0.9}

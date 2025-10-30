@@ -61,6 +61,8 @@ async function loadWatchlist(){
       currentSymbol = s;
       createWidget(s);
       highlightActive(initial);
+      // compute zigzag overlay for initial symbol if enabled
+      try{ if(typeof updateZigZag === 'function') updateZigZag(); }catch(e){ console.warn('ZigZag init failed', e); }
     }
   }catch(e){
     console.error('Failed to load watchlist', e);
@@ -131,6 +133,8 @@ function onSelect(sym){
   createWidget(n);
   highlightActive(sym);
   localStorage.setItem('lastSymbol', sym);
+  // refresh ZigZag overlay for the newly selected symbol (if enabled)
+  try{ if(typeof updateZigZag === 'function') updateZigZag(); }catch(e){console.warn('ZigZag update failed', e);}
 }
 
 // Watchlist editing helpers (persisted in localStorage)
@@ -434,6 +438,39 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   loadProfiles();
   ensureDefaultProfiles();
+
+  // ZigZag controls wiring
+  const zzToggle = document.getElementById('toggle-zigzag');
+  const zzThreshold = document.getElementById('zigzag-threshold');
+  if(zzToggle){
+    // initialize (support button toggles or checkbox)
+    const saved = localStorage.getItem('zigzag_on');
+    if(zzToggle.tagName === 'BUTTON'){
+      const on = saved === 'true';
+      if(on){ zzToggle.classList.add('active'); zzToggle.textContent = 'Hide ZigZag'; }
+      else { zzToggle.classList.remove('active'); zzToggle.textContent = 'Show ZigZag'; }
+      zzToggle.addEventListener('click', (e)=>{
+        const isOn = zzToggle.classList.toggle('active');
+        localStorage.setItem('zigzag_on', isOn);
+        zzToggle.textContent = isOn ? 'Hide ZigZag' : 'Show ZigZag';
+        updateZigZag();
+      });
+    } else {
+      if(saved !== null) zzToggle.checked = saved === 'true';
+      zzToggle.addEventListener('change', (e)=>{
+        localStorage.setItem('zigzag_on', e.target.checked);
+        updateZigZag();
+      });
+    }
+  }
+  if(zzThreshold){
+    const savedT = localStorage.getItem('zigzag_threshold') || zzThreshold.value;
+    zzThreshold.value = savedT;
+    zzThreshold.addEventListener('change', (e)=>{
+      localStorage.setItem('zigzag_threshold', e.target.value);
+      updateZigZag();
+    });
+  }
 
   // Export/import handlers
   const exportBtn = document.getElementById('export-profiles');
@@ -750,4 +787,181 @@ function rsi(closes, period=14){
     out.unshift(100 - (100/(1+rs))); // keep most recent at index 0
   }
   return out;
+}
+
+// -------- ZigZag pivot calculator and mini-overlay renderer --------
+// computes pivot points from closes array (most recent first) using a percent threshold
+function computeZigZag(closes, thresholdPercent = 5){
+  if(!closes || closes.length < 3) return [];
+  // convert to chronological order (oldest -> newest)
+  const data = [...closes].reverse();
+  const n = data.length;
+  const pivots = [];
+
+  let lastPivotIndex = 0;
+  let lastPivotPrice = data[0];
+  let lastPivotType = null; // 'high' or 'low'
+
+  let maxSincePivot = data[0];
+  let maxIndex = 0;
+  let minSincePivot = data[0];
+  let minIndex = 0;
+
+  for(let i=1;i<n;i++){
+    const price = data[i];
+    if(price > maxSincePivot){ maxSincePivot = price; maxIndex = i; }
+    if(price < minSincePivot){ minSincePivot = price; minIndex = i; }
+
+    // check for move up from last pivot
+    const upMove = (maxSincePivot - lastPivotPrice)/Math.max(1e-9, lastPivotPrice) * 100;
+    const downMove = (lastPivotPrice - minSincePivot)/Math.max(1e-9, lastPivotPrice) * 100;
+
+    if(upMove >= thresholdPercent && (lastPivotType === 'low' || lastPivotType === null)){
+      // create high pivot at maxIndex
+      pivots.push({index: maxIndex, price: maxSincePivot, type: 'high'});
+      lastPivotIndex = maxIndex; lastPivotPrice = maxSincePivot; lastPivotType = 'high';
+      // reset trackers
+      minSincePivot = lastPivotPrice; minIndex = lastPivotIndex;
+      maxSincePivot = lastPivotPrice; maxIndex = lastPivotIndex;
+      continue;
+    }
+
+    if(downMove >= thresholdPercent && (lastPivotType === 'high' || lastPivotType === null)){
+      // create low pivot at minIndex
+      pivots.push({index: minIndex, price: minSincePivot, type: 'low'});
+      lastPivotIndex = minIndex; lastPivotPrice = minSincePivot; lastPivotType = 'low';
+      // reset trackers
+      maxSincePivot = lastPivotPrice; maxIndex = lastPivotIndex;
+      minSincePivot = lastPivotPrice; minIndex = lastPivotIndex;
+      continue;
+    }
+  }
+
+  // Always include the last bar as a potential pivot (newest)
+  const lastIdx = n-1;
+  const lastPrice = data[lastIdx];
+  // avoid duplicating same index
+  if(pivots.length === 0 || pivots[pivots.length-1].index !== lastIdx){
+    // classify last as high or low compared to previous pivot
+    const lastType = (lastPrice >= lastPivotPrice) ? 'high' : 'low';
+    pivots.push({index: lastIdx, price: lastPrice, type: lastType});
+  }
+
+  // convert pivots indexes back to the original (most recent first) indexing
+  // original index for a chronological index i is (n - 1 - i)
+  return pivots.map(p => ({
+    idx: n - 1 - p.index,
+    price: p.price,
+    type: p.type
+  }));
+}
+
+function clearZigZagOverlay(){
+  const cont = document.getElementById('zigzag-mini');
+  if(!cont) return;
+  cont.innerHTML = '';
+}
+
+function renderZigZagOverlay(pivots, closes){
+  const cont = document.getElementById('zigzag-mini');
+  if(!cont) return;
+  cont.innerHTML = '';
+  const w = cont.clientWidth || 380;
+  const h = cont.clientHeight || 120;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  svg.style.display = 'block';
+
+  if(!closes || closes.length === 0 || pivots.length === 0){ cont.appendChild(svg); return; }
+
+  const n = closes.length;
+  const prices = closes.slice();
+  const maxP = Math.max(...prices);
+  const minP = Math.min(...prices);
+  const pad = (maxP - minP) * 0.06;
+  const top = maxP + pad;
+  const bottom = minP - pad;
+
+  // Build polyline points connecting pivots
+  const points = pivots.map(p => {
+    const x = (p.idx / Math.max(1, n-1)) * w;
+    const y = h - ((p.price - bottom) / Math.max(1e-9, (top - bottom))) * h;
+    return {x,y, type: p.type, price: p.price, idx: p.idx};
+  });
+
+  // Draw zigzag line
+  const poly = document.createElementNS(svgNS, 'polyline');
+  poly.setAttribute('fill', 'none');
+  poly.setAttribute('stroke', '#ffce54');
+  poly.setAttribute('stroke-width', '2');
+  poly.setAttribute('stroke-linejoin', 'round');
+  poly.setAttribute('stroke-linecap', 'round');
+  poly.setAttribute('points', points.map(p => `${p.x},${p.y}`).join(' '));
+  svg.appendChild(poly);
+
+  // draw pivot points
+  points.forEach(pt => {
+    const circle = document.createElementNS(svgNS, 'circle');
+    circle.setAttribute('cx', pt.x);
+    circle.setAttribute('cy', pt.y);
+    circle.setAttribute('r', '4');
+    circle.setAttribute('fill', pt.type === 'high' ? '#ff6b6b' : '#6be56b');
+    circle.setAttribute('stroke', '#111827');
+    circle.setAttribute('stroke-width', '1');
+    svg.appendChild(circle);
+  });
+
+  // draw simple trend lines: connect last two highs and last two lows
+  const highs = points.filter(p => p.type === 'high');
+  const lows = points.filter(p => p.type === 'low');
+  if(highs.length >= 2){
+    const a = highs[highs.length-2];
+    const b = highs[highs.length-1];
+    const line = document.createElementNS(svgNS, 'line');
+    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+    line.setAttribute('stroke', 'rgba(255,90,90,0.9)');
+    line.setAttribute('stroke-width', '1.6');
+    line.setAttribute('stroke-dasharray', '6 4');
+    svg.appendChild(line);
+  }
+  if(lows.length >= 2){
+    const a = lows[lows.length-2];
+    const b = lows[lows.length-1];
+    const line = document.createElementNS(svgNS, 'line');
+    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+    line.setAttribute('stroke', 'rgba(90,255,140,0.9)');
+    line.setAttribute('stroke-width', '1.6');
+    line.setAttribute('stroke-dasharray', '6 4');
+    svg.appendChild(line);
+  }
+
+  cont.appendChild(svg);
+}
+
+// Entry: fetch data and update overlay if enabled
+async function updateZigZag(){
+  const zzToggle = document.getElementById('toggle-zigzag');
+  if(!zzToggle){ clearZigZagOverlay(); return; }
+  const enabled = zzToggle.tagName === 'BUTTON' ? zzToggle.classList.contains('active') : zzToggle.checked;
+  if(!enabled){ clearZigZagOverlay(); return; }
+  if(!currentSymbol){ showToast('Select a symbol to compute ZigZag'); return; }
+  const provider = document.getElementById('data-provider') ? document.getElementById('data-provider').value : 'alphavantage';
+  const fhKey = localStorage.getItem('fh_key') || (document.getElementById('fh-key') ? document.getElementById('fh-key').value : '');
+  const avKey = localStorage.getItem('av_key') || (document.getElementById('av-key') ? document.getElementById('av-key').value : '');
+  const thr = parseFloat(localStorage.getItem('zigzag_threshold') || document.getElementById('zigzag-threshold').value || '5');
+  // symbol for data fetch: original symbol without exchange prefix
+  const sym = currentSymbol.replace(/^[^:]+:/, '');
+  let data = null;
+  try{
+    if(provider === 'finnhub' && fhKey){ data = await fetchDailyFinnhub(sym, fhKey); }
+    if(!data && avKey){ data = await fetchDailyAlpha(sym, avKey); }
+    if(!data){ showToast('No OHLC data available for ZigZag. Provide API key or try another provider.', 4000); clearZigZagOverlay(); return; }
+    const pivots = computeZigZag(data.closes, thr);
+    renderZigZagOverlay(pivots, data.closes);
+  }catch(err){ console.error('ZigZag update failed', err); showToast('ZigZag computation failed'); }
 }
