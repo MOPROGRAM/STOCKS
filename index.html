@@ -87,6 +87,18 @@
               <input id="w-stoch" type="range" min="0" max="2" step="0.1" value="1">
               <label>QQE weight: <span id="w-qqe-val">1.0</span></label>
               <input id="w-qqe" type="range" min="0" max="2" step="0.1" value="1">
+              <div class="profiles">
+                <h4>Weight Profiles</h4>
+                <div class="profile-controls">
+                  <input id="profile-name" placeholder="Profile name" />
+                  <button id="save-profile">Save</button>
+                </div>
+                <select id="profiles-list" size="4" style="width:100%;margin-top:6px"></select>
+                <div style="display:flex;gap:8px;margin-top:6px">
+                  <button id="load-profile">Load</button>
+                  <button id="delete-profile">Delete</button>
+                </div>
+              </div>
             </div>
           </div>
           <div id="scan-status" class="scan-status">Idle</div>

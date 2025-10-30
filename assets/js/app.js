@@ -358,6 +358,70 @@ document.addEventListener('DOMContentLoaded', ()=>{
       el.addEventListener('input', (e)=>{ val.textContent = parseFloat(e.target.value).toFixed(1); localStorage.setItem('w_' + k, e.target.value); });
     }
   });
+
+  // Profiles: save/load/delete
+  const saveBtn = document.getElementById('save-profile');
+  const loadBtn = document.getElementById('load-profile');
+  const delBtn = document.getElementById('delete-profile');
+  const profilesList = document.getElementById('profiles-list');
+  const profileNameInput = document.getElementById('profile-name');
+
+  function loadProfiles(){
+    const raw = localStorage.getItem('weight_profiles');
+    let map = {};
+    try{ map = raw ? JSON.parse(raw) : {}; }catch(e){ map = {}; }
+    profilesList.innerHTML = '';
+    Object.keys(map).forEach(name=>{
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      profilesList.appendChild(opt);
+    });
+  }
+
+  function saveProfile(){
+    const name = (profileNameInput.value || '').trim();
+    if(!name) return alert('Enter a profile name');
+    const map = JSON.parse(localStorage.getItem('weight_profiles') || '{}');
+    map[name] = getWeights();
+    localStorage.setItem('weight_profiles', JSON.stringify(map));
+    loadProfiles();
+    showToast('Profile saved');
+  }
+
+  function applyProfile(name){
+    const map = JSON.parse(localStorage.getItem('weight_profiles') || '{}');
+    if(!map[name]) return alert('Profile not found');
+    const w = map[name];
+    ['sma','rsi','macd','stoch','qqe'].forEach(k=>{
+      const el = document.getElementById('w-' + k);
+      const val = document.getElementById('w-' + k + '-val');
+      if(el && val && w[k] !== undefined){ el.value = w[k]; val.textContent = parseFloat(w[k]).toFixed(1); localStorage.setItem('w_' + k, w[k]); }
+    });
+    showToast('Profile loaded');
+  }
+
+  function deleteProfile(name){
+    const map = JSON.parse(localStorage.getItem('weight_profiles') || '{}');
+    if(!map[name]) return alert('Profile not found');
+    delete map[name];
+    localStorage.setItem('weight_profiles', JSON.stringify(map));
+    loadProfiles();
+    showToast('Profile deleted');
+  }
+
+  saveBtn.addEventListener('click', saveProfile);
+  loadBtn.addEventListener('click', ()=>{
+    const sel = profilesList.value;
+    if(!sel) return alert('Select a profile to load');
+    applyProfile(sel);
+  });
+  delBtn.addEventListener('click', ()=>{
+    const sel = profilesList.value;
+    if(!sel) return alert('Select a profile to delete');
+    if(confirm(`Delete profile '${sel}'?`)) deleteProfile(sel);
+  });
+
+  loadProfiles();
 });
 
 // ---------- Scanner implementation ----------
